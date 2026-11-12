@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – parallele Spuren (Subway-Stil), Figur fest auf der Bahn
+/// Infinity Run – parallele Spuren, Figur läuft (starke Bein-Animation)
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -15,8 +15,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   late final AnimationController _tick;
   final _rng = Random();
 
-  int lane = 1; // 0 links, 1 mitte, 2 rechts
-  double laneX = 0.0; // -1 .. 1
+  int lane = 1;
+  double laneX = 0.0;
 
   double speed = 6.5;
   double dist = 0;
@@ -86,7 +86,10 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     score = dist.toInt() + coins * 5;
     speed = min(14.0, 6.5 + dist * 0.0014);
 
-    final cadence = ducking ? 3.4 : (jumpY > 0.25 ? 2.3 : 8.8 + speed * 0.48);
+    // Lauf-Kadenz an Geschwindigkeit koppeln → Figur „rennt“
+    final cadence = ducking
+        ? 3.2
+        : (jumpY > 0.2 ? 2.2 : 10.5 + speed * 0.65);
     runPhase += dt * cadence;
 
     if (jumpY > 0 || jumpV > 0) {
@@ -119,10 +122,11 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       obs.add(_Obs(lane: l, z: 38, kind: kind, hue: _rng.nextDouble()));
     }
 
+    // Münzen: fester Welt-Abstand 2.8 → gleichmäßigere Abstände auf dem Bildschirm
     coinAcc += dt;
-    if (coinAcc > 0.36) {
+    if (coinAcc > 0.42) {
       coinAcc = 0;
-      coinList.add(_Coin(lane: _rng.nextInt(3), z: 38, high: _rng.nextDouble() < 0.25));
+      coinList.add(_Coin(lane: _rng.nextInt(3), z: 38, high: _rng.nextDouble() < 0.22));
     }
 
     for (final o in obs) {
@@ -134,7 +138,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     coinList.removeWhere((c) => c.z < 0.08);
 
-    // Enges Fenster: erst kurz vor dem Hindernis springen/ducken
     if (!ghost && !jetpack && (laneX - target).abs() < 0.15) {
       for (final o in obs) {
         if (o.lane != lane) continue;
@@ -326,6 +329,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                     jetpack: jetpack,
                     ghost: ghost,
                     dead: dead,
+                    speed: speed,
                   ),
                   child: const SizedBox.expand(),
                 ),
@@ -427,23 +431,21 @@ class _Coin {
   _Coin({required this.lane, required this.z, this.high = false});
 }
 
-/// Perspektiv-Kamera: 3 parallele Spuren, kein seitliches Auffächern
+/// Lineare Perspektive: parallele Spuren, kein Bogen
 class _Cam {
   final Size size;
   final double horizonY;
   final double groundY;
-  /// Abstand der Spur-Mitten am Boden (Spieler-Ebene), in Anteil der Breite
-  static const double nearSpread = 0.22;
+  /// Etwas breitere Spuren
+  static const double nearSpread = 0.26;
 
   _Cam(this.size)
       : horizonY = size.height * 0.30,
         groundY = size.height * 0.78;
 
-  /// z: 1 (nah) … 40 (fern). lx: -1 / 0 / 1
   Offset project(double lx, double z, [double y = 0]) {
-    final t = ((z - 1.0) / 39.0).clamp(0.0, 1.0); // 0 = nah, 1 = fern
-    // Spur-Breite nimmt linear ab → parallele Schienen, kein Bogen
-    final spread = nearSpread * (1.0 - t * 0.92);
+    final t = ((z - 1.0) / 39.0).clamp(0.0, 1.0);
+    final spread = nearSpread * (1.0 - t * 0.90);
     final sx = size.width * 0.5 + lx * size.width * spread;
     final sy = groundY + (horizonY - groundY) * t - y * (1.0 - t) * size.height * 0.12;
     return Offset(sx, sy);
@@ -451,7 +453,7 @@ class _Cam {
 
   double scale(double z) {
     final t = ((z - 1.0) / 39.0).clamp(0.0, 1.0);
-    return (28.0 * (1.0 - t * 0.85)).clamp(4.0, 28.0);
+    return (30.0 * (1.0 - t * 0.82)).clamp(4.0, 30.0);
   }
 }
 
@@ -465,9 +467,10 @@ class _RunPainter extends CustomPainter {
   final double runPhase;
   final double worldPhase;
   final bool jetpack, ghost, dead;
+  final double speed;
 
-  static const double trackHalf = 0.11;
-  static const double railGap = 0.055;
+  static const double trackHalf = 0.125;
+  static const double railGap = 0.062;
 
   _RunPainter({
     required this.laneX,
@@ -481,6 +484,7 @@ class _RunPainter extends CustomPainter {
     required this.jetpack,
     required this.ghost,
     required this.dead,
+    required this.speed,
   });
 
   Rect _r(double l, double t, double w, double h) =>
@@ -491,7 +495,6 @@ class _RunPainter extends CustomPainter {
     if (size.width < 40 || size.height < 40) return;
     final cam = _Cam(size);
 
-    // Himmel
     canvas.drawRect(
       Offset.zero & size,
       Paint()
@@ -503,7 +506,6 @@ class _RunPainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Sonne
     final sunC = Offset(size.width * 0.82, size.height * 0.09);
     canvas.drawCircle(
       sunC,
@@ -514,7 +516,6 @@ class _RunPainter extends CustomPainter {
         ).createShader(_r(sunC.dx - 28, sunC.dy - 28, 56, 56)),
     );
 
-    // Skyline
     final skyShift = (worldPhase * 5) % (size.width * 0.05);
     for (int i = -1; i < 14; i++) {
       final x = size.width * (0.014 * i) - skyShift;
@@ -525,7 +526,6 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Gras
     canvas.drawRect(
       _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
       Paint()
@@ -536,22 +536,22 @@ class _RunPainter extends CustomPainter {
         ).createShader(_r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // === 3 parallele Bahnen ===
+    // 3 parallele Bahnen (Trapez, gerade Kanten – keine Krümmung)
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
 
-      // Schotter als Trapez (nah → fern)
-      final bed = Path();
       final nearL = cam.project(lx - trackHalf, 1.2);
       final nearR = cam.project(lx + trackHalf, 1.2);
       final farL = cam.project(lx - trackHalf, 38);
       final farR = cam.project(lx + trackHalf, 38);
-      bed.moveTo(nearL.dx, nearL.dy);
-      bed.lineTo(nearR.dx, nearR.dy);
-      bed.lineTo(farR.dx, farR.dy);
-      bed.lineTo(farL.dx, farL.dy);
-      bed.close();
+
+      final bed = Path()
+        ..moveTo(nearL.dx, nearL.dy)
+        ..lineTo(nearR.dx, nearR.dy)
+        ..lineTo(farR.dx, farR.dy)
+        ..lineTo(farL.dx, farL.dy)
+        ..close();
       canvas.drawPath(
         bed,
         Paint()
@@ -560,7 +560,6 @@ class _RunPainter extends CustomPainter {
               : const Color(0xFF6B5344).withOpacity(0.82),
       );
 
-      // Dunkle Ränder
       final edge = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = on ? 2.6 : 1.8
@@ -568,8 +567,8 @@ class _RunPainter extends CustomPainter {
       canvas.drawLine(nearL, farL, edge);
       canvas.drawLine(nearR, farR, edge);
 
-      // Schwellen
-      for (double z = 2.0; z < 36; z += 1.4) {
+      // Schwellen: fester Welt-Abstand 1.5
+      for (double z = 2.0; z < 36; z += 1.5) {
         final a = cam.project(lx - trackHalf * 0.88, z);
         final b = cam.project(lx + trackHalf * 0.88, z);
         final sc = cam.scale(z);
@@ -578,11 +577,10 @@ class _RunPainter extends CustomPainter {
           b,
           Paint()
             ..color = const Color(0xFF4E342E)
-            ..strokeWidth = (sc * 0.12).clamp(1.2, 8.0),
+            ..strokeWidth = (sc * 0.11).clamp(1.2, 7.5),
         );
       }
 
-      // Zwei Schienen (gerade Linien nah→fern)
       final pL0 = cam.project(lx - railGap, 1.2);
       final pL1 = cam.project(lx - railGap, 38);
       final pR0 = cam.project(lx + railGap, 1.2);
@@ -590,7 +588,7 @@ class _RunPainter extends CustomPainter {
       final rp = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.4 : 2.2
+        ..strokeWidth = on ? 3.5 : 2.3
         ..color = on ? const Color(0xFFFFF59D) : const Color(0xFFD0D5DC);
       canvas.drawLine(pL0, pL1, rp);
       canvas.drawLine(
@@ -600,12 +598,11 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Münzen
     for (final c in coins) {
       if (c.z < 1.5 || c.z > 36) continue;
       final sc = cam.scale(c.z);
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.9 : 0.2);
-      final r = (sc * 0.28).clamp(3.5, 14.0);
+      final r = (sc * 0.26).clamp(3.5, 13.0);
       canvas.drawCircle(
         p,
         r,
@@ -616,14 +613,13 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Hindernisse
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
       if (o.z < 1.5 || o.z > 36) continue;
       final sc = cam.scale(o.z);
       final base = cam.project((o.lane - 1).toDouble(), o.z);
-      final w = (sc * 1.1).clamp(7.0, 52.0);
-      final d = (sc * 0.3).clamp(2.0, 14.0);
+      final w = (sc * 1.15).clamp(7.0, 54.0);
+      final d = (sc * 0.32).clamp(2.0, 14.0);
 
       if (o.kind == 0) {
         final h = (sc * 0.55).clamp(7.0, 32.0);
@@ -643,20 +639,19 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Figur: gleiche project()-Formel, immer auf laneX
+    // Figur fest auf laneX
     final raw = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.2 : 0));
-    final px = raw.dx;
-    final py = raw.dy;
     final pScale = cam.scale(3.0);
     _runner(
       canvas,
-      Offset(px, py),
-      (pScale * 0.095).clamp(1.0, 1.5),
+      Offset(raw.dx, raw.dy),
+      (pScale * 0.1).clamp(1.05, 1.55),
       runPhase,
       ducking,
       jumpY > 0.15,
       ghost,
       jetpack,
+      speed,
     );
 
     if (dead) {
@@ -707,6 +702,7 @@ class _RunPainter extends CustomPainter {
     );
   }
 
+  /// Starke Lauf-Animation: Beine + Arme + Bob → Figur „rennt“
   void _runner(
     Canvas c,
     Offset pos,
@@ -716,31 +712,42 @@ class _RunPainter extends CustomPainter {
     bool air,
     bool ghost,
     bool jet,
+    double spd,
   ) {
-    final s = 26.0 * scale;
+    final s = 27.0 * scale;
     final skin =
         ghost ? Colors.purpleAccent.withOpacity(0.9) : const Color(0xFF29B6F6);
     final dark = ghost ? Colors.deepPurple : const Color(0xFF01579B);
-    final leg = sin(phase) * (duck ? 0.08 : (air ? 0.22 : 0.82));
-    final arm = -sin(phase) * (duck ? 0.06 : (air ? 0.22 : 0.72));
-    final bob = duck || air ? 0.0 : sin(phase * 2) * s * 0.08;
+
+    // Ausgeprägter Laufzyklus
+    final legSwing = sin(phase);
+    final leg = legSwing * (duck ? 0.06 : (air ? 0.2 : 1.05));
+    final arm = -legSwing * (duck ? 0.05 : (air ? 0.2 : 0.95));
+    final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.14);
+    final lean = air ? 0.0 : (spd / 14.0) * s * 0.06; // leichte Vorbeuge beim Rennen
 
     c.drawOval(
-      _r(pos.dx - s * 0.45, pos.dy + s * 1.15, s * 0.9, 8),
-      Paint()..color = Colors.black.withOpacity(0.4),
+      _r(pos.dx - s * 0.42, pos.dy + s * 1.12, s * 0.84, 7),
+      Paint()..color = Colors.black.withOpacity(0.38),
     );
 
-    final bodyTop = (duck ? pos.dy + s * 0.12 : pos.dy - s * 0.1) + bob;
-    final bodyH = duck ? s * 0.48 : s * 1.02;
-    final hip = Offset(pos.dx, bodyTop + bodyH * 0.55);
-    final footY = pos.dy + s * 1.12;
+    final bodyTop = (duck ? pos.dy + s * 0.12 : pos.dy - s * 0.12) + bob - lean;
+    final bodyH = duck ? s * 0.48 : s * 1.05;
+    final hip = Offset(pos.dx, bodyTop + bodyH * 0.58);
+    final footY = pos.dy + s * 1.15;
 
+    // Beine (größerer Ausschlag)
     final lp = Paint()
       ..color = dark
-      ..strokeWidth = s * 0.24
+      ..strokeWidth = s * 0.26
       ..strokeCap = StrokeCap.round;
-    c.drawLine(hip, Offset(pos.dx - s * 0.38 - leg * s * 0.48, footY), lp);
-    c.drawLine(hip, Offset(pos.dx + s * 0.38 + leg * s * 0.48, footY), lp);
+    final leftFoot = Offset(pos.dx - s * 0.32 - leg * s * 0.55, footY + (leg > 0 ? 0 : -leg.abs() * s * 0.12));
+    final rightFoot = Offset(pos.dx + s * 0.32 + leg * s * 0.55, footY + (leg < 0 ? 0 : -leg.abs() * s * 0.12));
+    c.drawLine(hip, leftFoot, lp);
+    c.drawLine(hip, rightFoot, lp);
+    // Füße
+    c.drawCircle(leftFoot, s * 0.1, Paint()..color = dark);
+    c.drawCircle(rightFoot, s * 0.1, Paint()..color = dark);
 
     final body = RRect.fromRectAndRadius(
       _r(pos.dx - s * 0.34, bodyTop, s * 0.68, bodyH),
@@ -756,15 +763,15 @@ class _RunPainter extends CustomPainter {
         ).createShader(body.outerRect),
     );
 
-    final sh = Offset(pos.dx, bodyTop + bodyH * 0.08);
+    final sh = Offset(pos.dx, bodyTop + bodyH * 0.1);
     final ap = Paint()
       ..color = dark
-      ..strokeWidth = s * 0.18
+      ..strokeWidth = s * 0.2
       ..strokeCap = StrokeCap.round;
-    c.drawLine(sh, Offset(pos.dx - s * 0.5, sh.dy + s * 0.38 + arm * s * 0.42), ap);
-    c.drawLine(sh, Offset(pos.dx + s * 0.5, sh.dy + s * 0.38 - arm * s * 0.42), ap);
+    c.drawLine(sh, Offset(pos.dx - s * 0.55, sh.dy + s * 0.42 + arm * s * 0.5), ap);
+    c.drawLine(sh, Offset(pos.dx + s * 0.55, sh.dy + s * 0.42 - arm * s * 0.5), ap);
 
-    final headY = bodyTop - s * 0.36;
+    final headY = bodyTop - s * 0.34;
     final hr = s * 0.36;
     c.drawCircle(
       Offset(pos.dx, headY),
