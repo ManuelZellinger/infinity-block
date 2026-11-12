@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – parallele Spuren, Figur läuft (starke Bein-Animation)
+/// Infinity Run – milde Perspektive, stabile Hindernisgröße & Absprungzeit
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -18,7 +18,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   int lane = 1;
   double laneX = 0.0;
 
-  double speed = 6.5;
+  double speed = 6.2;
   double dist = 0;
   int score = 0;
   int coins = 0;
@@ -46,8 +46,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   double coinAcc = 0;
   double worldPhase = 0;
 
-  static const double jumpPower = 14.2;
-  static const double gravity = 22.0;
+  static const double jumpPower = 14.0;
+  static const double gravity = 21.5;
   static const double kPlayerZ = 3.0;
 
   @override
@@ -82,14 +82,12 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
 
     dist += speed * dt;
-    worldPhase += speed * dt * 0.12;
+    worldPhase += speed * dt * 0.11;
     score = dist.toInt() + coins * 5;
-    speed = min(14.0, 6.5 + dist * 0.0014);
+    speed = min(13.5, 6.2 + dist * 0.0013);
 
-    // Lauf-Kadenz an Geschwindigkeit koppeln → Figur „rennt“
-    final cadence = ducking
-        ? 3.2
-        : (jumpY > 0.2 ? 2.2 : 10.5 + speed * 0.65);
+    final cadence =
+        ducking ? 3.2 : (jumpY > 0.2 ? 2.2 : 10.2 + speed * 0.6);
     runPhase += dt * cadence;
 
     if (jumpY > 0 || jumpV > 0) {
@@ -114,19 +112,19 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
 
     spawnAcc += dt;
-    if (spawnAcc > max(1.35, 2.1 - dist / 5600)) {
+    if (spawnAcc > max(1.4, 2.15 - dist / 5800)) {
       spawnAcc = 0;
       final l = _rng.nextInt(3);
       final r = _rng.nextDouble();
-      final kind = r < 0.4 ? 0 : (r < 0.68 ? 1 : 2);
-      obs.add(_Obs(lane: l, z: 38, kind: kind, hue: _rng.nextDouble()));
+      final kind = r < 0.42 ? 0 : (r < 0.7 ? 1 : 2);
+      obs.add(_Obs(lane: l, z: 36, kind: kind, hue: _rng.nextDouble()));
     }
 
-    // Münzen: fester Welt-Abstand 2.8 → gleichmäßigere Abstände auf dem Bildschirm
     coinAcc += dt;
-    if (coinAcc > 0.42) {
+    if (coinAcc > 0.45) {
       coinAcc = 0;
-      coinList.add(_Coin(lane: _rng.nextInt(3), z: 38, high: _rng.nextDouble() < 0.22));
+      coinList.add(
+          _Coin(lane: _rng.nextInt(3), z: 36, high: _rng.nextDouble() < 0.2));
     }
 
     for (final o in obs) {
@@ -138,12 +136,13 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     coinList.removeWhere((c) => c.z < 0.08);
 
-    if (!ghost && !jetpack && (laneX - target).abs() < 0.15) {
+    // Absprung: enges, stabiles Fenster – passt zur milden Perspektive
+    if (!ghost && !jetpack && (laneX - target).abs() < 0.14) {
       for (final o in obs) {
         if (o.lane != lane) continue;
         final dz = o.z - kPlayerZ;
-        if (dz < 0.08 || dz > 0.95) continue;
-        if (o.kind == 0 && jumpY < 0.95) {
+        if (dz < 0.1 || dz > 1.0) continue;
+        if (o.kind == 0 && jumpY < 0.9) {
           _die();
           return;
         }
@@ -158,8 +157,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       }
     }
     for (final c in coinList) {
-      if (c.lane == lane && (c.z - kPlayerZ).abs() < 1.2) {
-        if (c.high && jumpY < 0.3) continue;
+      if (c.lane == lane && (c.z - kPlayerZ).abs() < 1.15) {
+        if (c.high && jumpY < 0.28) continue;
         if (!c.high && ducking) continue;
         coins++;
         c.z = -10;
@@ -186,7 +185,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     setState(() {
       lane = 1;
       laneX = 0;
-      speed = 6.5;
+      speed = 6.2;
       dist = 0;
       score = 0;
       coins = 0;
@@ -233,7 +232,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     setState(() {
       jetpack = true;
       jetpackT = 7.5;
-      jumpY = 2.6;
+      jumpY = 2.5;
     });
   }
 
@@ -257,15 +256,18 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.home_rounded, color: Colors.white70, size: 22),
+                    icon: const Icon(Icons.home_rounded,
+                        color: Colors.white70, size: 22),
                     onPressed: () => Navigator.pop(context),
                   ),
                   const Spacer(),
                   _chip('$score', Icons.speed_rounded),
                   const SizedBox(width: 8),
-                  _chip('$coins', Icons.monetization_on_rounded, Colors.amberAccent),
+                  _chip('$coins', Icons.monetization_on_rounded,
+                      Colors.amberAccent),
                   const SizedBox(width: 8),
-                  _chip('Spur ${lane + 1}', Icons.view_column_rounded, Colors.lightGreenAccent),
+                  _chip('Spur ${lane + 1}', Icons.view_column_rounded,
+                      Colors.lightGreenAccent),
                 ],
               ),
             ),
@@ -342,20 +344,25 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _btn(Icons.keyboard_arrow_up_rounded, _jump, const Color(0xFFFFB300)),
+                      _btn(Icons.keyboard_arrow_up_rounded, _jump,
+                          const Color(0xFFFFB300)),
                       const SizedBox(width: 10),
-                      _btn(Icons.keyboard_arrow_down_rounded, _duck, const Color(0xFFCE93D8)),
+                      _btn(Icons.keyboard_arrow_down_rounded, _duck,
+                          const Color(0xFFCE93D8)),
                       const SizedBox(width: 10),
-                      _btn(Icons.rocket_launch_rounded, _jet, const Color(0xFF00E5FF)),
+                      _btn(Icons.rocket_launch_rounded, _jet,
+                          const Color(0xFF00E5FF)),
                       const SizedBox(width: 10),
-                      _btn(Icons.blur_on_rounded, _ghost, const Color(0xFFE040FB)),
+                      _btn(Icons.blur_on_rounded, _ghost,
+                          const Color(0xFFE040FB)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _btn(Icons.chevron_left_rounded, () => _lane(-1), Colors.white),
+                      _btn(Icons.chevron_left_rounded, () => _lane(-1),
+                          Colors.white),
                       const SizedBox(width: 14),
                       Text(
                         '←  Spur ${lane + 1} / 3  →',
@@ -366,7 +373,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                         ),
                       ),
                       const SizedBox(width: 14),
-                      _btn(Icons.chevron_right_rounded, () => _lane(1), Colors.white),
+                      _btn(Icons.chevron_right_rounded, () => _lane(1),
+                          Colors.white),
                     ],
                   ),
                   if (dead) ...[
@@ -400,7 +408,9 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
           children: [
             Icon(icon, size: 14, color: c),
             const SizedBox(width: 5),
-            Text(v, style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 13)),
+            Text(v,
+                style: TextStyle(
+                    color: c, fontWeight: FontWeight.w700, fontSize: 13)),
           ],
         ),
       );
@@ -411,7 +421,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
         child: InkWell(
           onTap: on,
           borderRadius: BorderRadius.circular(16),
-          child: SizedBox(width: 54, height: 46, child: Icon(icon, color: c, size: 28)),
+          child: SizedBox(
+              width: 54, height: 46, child: Icon(icon, color: c, size: 28)),
         ),
       );
 }
@@ -421,7 +432,11 @@ class _Obs {
   double z;
   int kind;
   double hue;
-  _Obs({required this.lane, required this.z, required this.kind, this.hue = 0});
+  _Obs(
+      {required this.lane,
+      required this.z,
+      required this.kind,
+      this.hue = 0});
 }
 
 class _Coin {
@@ -431,29 +446,38 @@ class _Coin {
   _Coin({required this.lane, required this.z, this.high = false});
 }
 
-/// Lineare Perspektive: parallele Spuren, kein Bogen
+/// Milde lineare Perspektive – wenig Größenverzerrung
 class _Cam {
   final Size size;
   final double horizonY;
   final double groundY;
-  /// Etwas breitere Spuren
-  static const double nearSpread = 0.26;
+  static const double nearSpread = 0.25;
 
   _Cam(this.size)
-      : horizonY = size.height * 0.30,
-        groundY = size.height * 0.78;
+      : horizonY = size.height * 0.32,
+        groundY = size.height * 0.76;
 
   Offset project(double lx, double z, [double y = 0]) {
-    final t = ((z - 1.0) / 39.0).clamp(0.0, 1.0);
-    final spread = nearSpread * (1.0 - t * 0.90);
+    final t = ((z - 1.0) / 35.0).clamp(0.0, 1.0);
+    // Nur leichte Verengung nach hinten (kein extremes Schrumpfen)
+    final spread = nearSpread * (1.0 - t * 0.55);
     final sx = size.width * 0.5 + lx * size.width * spread;
-    final sy = groundY + (horizonY - groundY) * t - y * (1.0 - t) * size.height * 0.12;
+    final sy =
+        groundY + (horizonY - groundY) * t - y * (1.0 - t) * size.height * 0.1;
     return Offset(sx, sy);
   }
 
+  /// Breite der Spur an Position z (für Hindernisse = Spurbreite)
+  double trackWidth(double z) {
+    final t = ((z - 1.0) / 35.0).clamp(0.0, 1.0);
+    final spread = nearSpread * (1.0 - t * 0.55);
+    return size.width * spread * 0.95;
+  }
+
+  /// Sanfte Skala: max ~1.4x Unterschied nah/fern statt 5x+
   double scale(double z) {
-    final t = ((z - 1.0) / 39.0).clamp(0.0, 1.0);
-    return (30.0 * (1.0 - t * 0.82)).clamp(4.0, 30.0);
+    final t = ((z - 1.0) / 35.0).clamp(0.0, 1.0);
+    return (22.0 * (1.0 - t * 0.45)).clamp(8.0, 22.0);
   }
 }
 
@@ -469,8 +493,8 @@ class _RunPainter extends CustomPainter {
   final bool jetpack, ghost, dead;
   final double speed;
 
-  static const double trackHalf = 0.125;
-  static const double railGap = 0.062;
+  static const double trackHalf = 0.12;
+  static const double railGap = 0.058;
 
   _RunPainter({
     required this.laneX,
@@ -509,20 +533,20 @@ class _RunPainter extends CustomPainter {
     final sunC = Offset(size.width * 0.82, size.height * 0.09);
     canvas.drawCircle(
       sunC,
-      size.width * 0.038,
+      size.width * 0.036,
       Paint()
         ..shader = RadialGradient(
           colors: const [Color(0xFFFFFFB0), Color(0xFFFFC107)],
-        ).createShader(_r(sunC.dx - 28, sunC.dy - 28, 56, 56)),
+        ).createShader(_r(sunC.dx - 26, sunC.dy - 26, 52, 52)),
     );
 
-    final skyShift = (worldPhase * 5) % (size.width * 0.05);
-    for (int i = -1; i < 14; i++) {
-      final x = size.width * (0.014 * i) - skyShift;
-      final h = size.height * (0.035 + ((i + 11) * 17 % 5) * 0.022);
+    final skyShift = (worldPhase * 4) % (size.width * 0.04);
+    for (int i = -1; i < 12; i++) {
+      final x = size.width * (0.015 * i) - skyShift;
+      final h = size.height * (0.03 + ((i + 9) * 13 % 4) * 0.02);
       canvas.drawRect(
-        Rect.fromLTWH(x, cam.horizonY - h, size.width * 0.038, h),
-        Paint()..color = const Color(0xFF3D5A6C).withOpacity(0.65),
+        Rect.fromLTWH(x, cam.horizonY - h, size.width * 0.036, h),
+        Paint()..color = const Color(0xFF3D5A6C).withOpacity(0.6),
       );
     }
 
@@ -533,18 +557,19 @@ class _RunPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: const [Color(0xFFB8D050), Color(0xFF7CB342), Color(0xFF558B2F)],
-        ).createShader(_r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
+        ).createShader(
+            _r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // 3 parallele Bahnen (Trapez, gerade Kanten – keine Krümmung)
+    // 3 parallele Bahnen
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
 
-      final nearL = cam.project(lx - trackHalf, 1.2);
-      final nearR = cam.project(lx + trackHalf, 1.2);
-      final farL = cam.project(lx - trackHalf, 38);
-      final farR = cam.project(lx + trackHalf, 38);
+      final nearL = cam.project(lx - trackHalf, 1.3);
+      final nearR = cam.project(lx + trackHalf, 1.3);
+      final farL = cam.project(lx - trackHalf, 34);
+      final farR = cam.project(lx + trackHalf, 34);
 
       final bed = Path()
         ..moveTo(nearL.dx, nearL.dy)
@@ -562,33 +587,32 @@ class _RunPainter extends CustomPainter {
 
       final edge = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = on ? 2.6 : 1.8
+        ..strokeWidth = on ? 2.5 : 1.7
         ..color = const Color(0xFF2C1810);
       canvas.drawLine(nearL, farL, edge);
       canvas.drawLine(nearR, farR, edge);
 
-      // Schwellen: fester Welt-Abstand 1.5
-      for (double z = 2.0; z < 36; z += 1.5) {
-        final a = cam.project(lx - trackHalf * 0.88, z);
-        final b = cam.project(lx + trackHalf * 0.88, z);
+      for (double z = 2.0; z < 32; z += 1.6) {
+        final a = cam.project(lx - trackHalf * 0.9, z);
+        final b = cam.project(lx + trackHalf * 0.9, z);
         final sc = cam.scale(z);
         canvas.drawLine(
           a,
           b,
           Paint()
             ..color = const Color(0xFF4E342E)
-            ..strokeWidth = (sc * 0.11).clamp(1.2, 7.5),
+            ..strokeWidth = (sc * 0.09).clamp(1.2, 6.0),
         );
       }
 
-      final pL0 = cam.project(lx - railGap, 1.2);
-      final pL1 = cam.project(lx - railGap, 38);
-      final pR0 = cam.project(lx + railGap, 1.2);
-      final pR1 = cam.project(lx + railGap, 38);
+      final pL0 = cam.project(lx - railGap, 1.3);
+      final pL1 = cam.project(lx - railGap, 34);
+      final pR0 = cam.project(lx + railGap, 1.3);
+      final pR1 = cam.project(lx + railGap, 34);
       final rp = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.5 : 2.3
+        ..strokeWidth = on ? 3.4 : 2.2
         ..color = on ? const Color(0xFFFFF59D) : const Color(0xFFD0D5DC);
       canvas.drawLine(pL0, pL1, rp);
       canvas.drawLine(
@@ -598,54 +622,64 @@ class _RunPainter extends CustomPainter {
       );
     }
 
+    // Münzen: Größe an Spurbreite gekoppelt (kaum Verzerrung)
     for (final c in coins) {
-      if (c.z < 1.5 || c.z > 36) continue;
-      final sc = cam.scale(c.z);
-      final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.9 : 0.2);
-      final r = (sc * 0.26).clamp(3.5, 13.0);
+      if (c.z < 1.6 || c.z > 32) continue;
+      final tw = cam.trackWidth(c.z);
+      final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.7 : 0.15);
+      final r = (tw * 0.12).clamp(5.0, 14.0);
       canvas.drawCircle(
         p,
         r,
         Paint()
           ..shader = RadialGradient(
-            colors: const [Color(0xFFFFFDE7), Color(0xFFFFD54F), Color(0xFFF57F17)],
+            colors: const [
+              Color(0xFFFFFDE7),
+              Color(0xFFFFD54F),
+              Color(0xFFF57F17)
+            ],
           ).createShader(_r(p.dx - r, p.dy - r, r * 2, r * 2)),
       );
     }
 
+    // Hindernisse: Breite = Spurbreite → keine extreme Verzerrung
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
-      if (o.z < 1.5 || o.z > 36) continue;
-      final sc = cam.scale(o.z);
+      if (o.z < 1.6 || o.z > 32) continue;
+      final tw = cam.trackWidth(o.z);
       final base = cam.project((o.lane - 1).toDouble(), o.z);
-      final w = (sc * 1.15).clamp(7.0, 54.0);
-      final d = (sc * 0.32).clamp(2.0, 14.0);
+      final w = (tw * 0.92).clamp(10.0, 70.0);
+      final d = (w * 0.22).clamp(3.0, 14.0);
 
       if (o.kind == 0) {
-        final h = (sc * 0.55).clamp(7.0, 32.0);
-        _box3d(canvas, base.dx, base.dy - h * 0.4, w, h, d,
-            const Color(0xFFFFFDE7), const Color(0xFFFFB300), const Color(0xFFE65100));
+        final h = (w * 0.45).clamp(10.0, 36.0);
+        _box3d(canvas, base.dx, base.dy - h * 0.38, w, h, d,
+            const Color(0xFFFFFDE7),
+            const Color(0xFFFFB300),
+            const Color(0xFFE65100));
       } else if (o.kind == 1) {
-        final h = (sc * 1.4).clamp(12.0, 78.0);
-        _box3d(canvas, base.dx, base.dy - h * 0.72, w * 0.95, h, d,
-            const Color(0xFFF3E5F5), const Color(0xFFAB47BC), const Color(0xFF4A148C));
+        final h = (w * 1.15).clamp(16.0, 72.0);
+        _box3d(canvas, base.dx, base.dy - h * 0.7, w * 0.95, h, d,
+            const Color(0xFFF3E5F5),
+            const Color(0xFFAB47BC),
+            const Color(0xFF4A148C));
       } else {
-        final h = (sc * 1.6).clamp(14.0, 90.0);
+        final h = (w * 1.3).clamp(18.0, 80.0);
         final cyan = o.hue < 0.5;
         final light = cyan ? const Color(0xFFE0F7FA) : const Color(0xFFFFEBEE);
         final mid = cyan ? const Color(0xFF00ACC1) : const Color(0xFFEF5350);
         final dark = cyan ? const Color(0xFF006064) : const Color(0xFFB71C1C);
-        _box3d(canvas, base.dx, base.dy - h * 0.42, w * 1.15, h, d * 1.3, light, mid, dark);
+        _box3d(canvas, base.dx, base.dy - h * 0.4, w * 1.05, h, d * 1.15,
+            light, mid, dark);
       }
     }
 
-    // Figur fest auf laneX
-    final raw = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.2 : 0));
+    final raw = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.15 : 0));
     final pScale = cam.scale(3.0);
     _runner(
       canvas,
       Offset(raw.dx, raw.dy),
-      (pScale * 0.1).clamp(1.05, 1.55),
+      (pScale * 0.11).clamp(1.1, 1.5),
       runPhase,
       ducking,
       jumpY > 0.15,
@@ -655,7 +689,8 @@ class _RunPainter extends CustomPainter {
     );
 
     if (dead) {
-      canvas.drawRect(Offset.zero & size, Paint()..color = Colors.black.withOpacity(0.45));
+      canvas.drawRect(
+          Offset.zero & size, Paint()..color = Colors.black.withOpacity(0.45));
     }
   }
 
@@ -670,20 +705,20 @@ class _RunPainter extends CustomPainter {
     Color mid,
     Color dark,
   ) {
-    w = w.clamp(4.0, 100.0);
-    h = h.clamp(4.0, 100.0);
-    d = d.clamp(1.5, 20.0);
+    w = w.clamp(4.0, 90.0);
+    h = h.clamp(4.0, 90.0);
+    d = d.clamp(1.5, 16.0);
     final right = Path()
       ..moveTo(cx + w / 2, cy - h / 2)
-      ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.3)
-      ..lineTo(cx + w / 2 + d, cy + h / 2 - d * 0.3)
+      ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.28)
+      ..lineTo(cx + w / 2 + d, cy + h / 2 - d * 0.28)
       ..lineTo(cx + w / 2, cy + h / 2)
       ..close();
     canvas.drawPath(right, Paint()..color = dark);
     final top = Path()
       ..moveTo(cx - w / 2, cy - h / 2)
-      ..lineTo(cx - w / 2 + d * 0.22, cy - h / 2 - d * 0.35)
-      ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.3)
+      ..lineTo(cx - w / 2 + d * 0.2, cy - h / 2 - d * 0.32)
+      ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.28)
       ..lineTo(cx + w / 2, cy - h / 2)
       ..close();
     canvas.drawPath(top, Paint()..color = light);
@@ -702,7 +737,6 @@ class _RunPainter extends CustomPainter {
     );
   }
 
-  /// Starke Lauf-Animation: Beine + Arme + Bob → Figur „rennt“
   void _runner(
     Canvas c,
     Offset pos,
@@ -714,40 +748,42 @@ class _RunPainter extends CustomPainter {
     bool jet,
     double spd,
   ) {
-    final s = 27.0 * scale;
+    final s = 28.0 * scale;
     final skin =
         ghost ? Colors.purpleAccent.withOpacity(0.9) : const Color(0xFF29B6F6);
     final dark = ghost ? Colors.deepPurple : const Color(0xFF01579B);
 
-    // Ausgeprägter Laufzyklus
     final legSwing = sin(phase);
-    final leg = legSwing * (duck ? 0.06 : (air ? 0.2 : 1.05));
-    final arm = -legSwing * (duck ? 0.05 : (air ? 0.2 : 0.95));
-    final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.14);
-    final lean = air ? 0.0 : (spd / 14.0) * s * 0.06; // leichte Vorbeuge beim Rennen
+    final leg = legSwing * (duck ? 0.06 : (air ? 0.18 : 1.0));
+    final arm = -legSwing * (duck ? 0.05 : (air ? 0.18 : 0.9));
+    final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.13);
+    final lean = air ? 0.0 : (spd / 14.0) * s * 0.05;
 
     c.drawOval(
-      _r(pos.dx - s * 0.42, pos.dy + s * 1.12, s * 0.84, 7),
-      Paint()..color = Colors.black.withOpacity(0.38),
+      _r(pos.dx - s * 0.4, pos.dy + s * 1.1, s * 0.8, 7),
+      Paint()..color = Colors.black.withOpacity(0.36),
     );
 
-    final bodyTop = (duck ? pos.dy + s * 0.12 : pos.dy - s * 0.12) + bob - lean;
+    final bodyTop =
+        (duck ? pos.dy + s * 0.12 : pos.dy - s * 0.12) + bob - lean;
     final bodyH = duck ? s * 0.48 : s * 1.05;
     final hip = Offset(pos.dx, bodyTop + bodyH * 0.58);
-    final footY = pos.dy + s * 1.15;
+    final footY = pos.dy + s * 1.12;
 
-    // Beine (größerer Ausschlag)
     final lp = Paint()
       ..color = dark
       ..strokeWidth = s * 0.26
       ..strokeCap = StrokeCap.round;
-    final leftFoot = Offset(pos.dx - s * 0.32 - leg * s * 0.55, footY + (leg > 0 ? 0 : -leg.abs() * s * 0.12));
-    final rightFoot = Offset(pos.dx + s * 0.32 + leg * s * 0.55, footY + (leg < 0 ? 0 : -leg.abs() * s * 0.12));
+    final leftFoot = Offset(
+        pos.dx - s * 0.32 - leg * s * 0.52,
+        footY + (leg > 0 ? 0 : -leg.abs() * s * 0.1));
+    final rightFoot = Offset(
+        pos.dx + s * 0.32 + leg * s * 0.52,
+        footY + (leg < 0 ? 0 : -leg.abs() * s * 0.1));
     c.drawLine(hip, leftFoot, lp);
     c.drawLine(hip, rightFoot, lp);
-    // Füße
-    c.drawCircle(leftFoot, s * 0.1, Paint()..color = dark);
-    c.drawCircle(rightFoot, s * 0.1, Paint()..color = dark);
+    c.drawCircle(leftFoot, s * 0.09, Paint()..color = dark);
+    c.drawCircle(rightFoot, s * 0.09, Paint()..color = dark);
 
     final body = RRect.fromRectAndRadius(
       _r(pos.dx - s * 0.34, bodyTop, s * 0.68, bodyH),
@@ -768,8 +804,10 @@ class _RunPainter extends CustomPainter {
       ..color = dark
       ..strokeWidth = s * 0.2
       ..strokeCap = StrokeCap.round;
-    c.drawLine(sh, Offset(pos.dx - s * 0.55, sh.dy + s * 0.42 + arm * s * 0.5), ap);
-    c.drawLine(sh, Offset(pos.dx + s * 0.55, sh.dy + s * 0.42 - arm * s * 0.5), ap);
+    c.drawLine(
+        sh, Offset(pos.dx - s * 0.52, sh.dy + s * 0.4 + arm * s * 0.48), ap);
+    c.drawLine(
+        sh, Offset(pos.dx + s * 0.52, sh.dy + s * 0.4 - arm * s * 0.48), ap);
 
     final headY = bodyTop - s * 0.34;
     final hr = s * 0.36;
@@ -785,14 +823,15 @@ class _RunPainter extends CustomPainter {
     if (jet) {
       final jr = 11.0;
       c.drawCircle(
-        Offset(pos.dx, pos.dy + s * 1.0),
+        Offset(pos.dx, pos.dy + s * 0.98),
         jr,
         Paint()
           ..shader = const RadialGradient(colors: [
             Color(0xFFFFFF00),
             Color(0xFFFF6D00),
             Colors.transparent,
-          ]).createShader(_r(pos.dx - jr, pos.dy + s - jr, jr * 2, jr * 2)),
+          ]).createShader(
+              _r(pos.dx - jr, pos.dy + s * 0.98 - jr, jr * 2, jr * 2)),
       );
     }
   }
