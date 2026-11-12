@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – 3 klar getrennte Bahnen (Schienen nicht über volle Breite)
+/// Infinity Run – Schienen klar vom Boden getrennt, Figur läuft auf der Spur
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -73,10 +73,11 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     if (!mounted || dead) return;
     const dt = 1 / 60.0;
 
+    // Schnell auf die Ziel-Schiene – Figur bleibt auf der Bahn
     final target = (lane - 1).toDouble();
     final d = target - laneX;
-    if (d.abs() > 0.004) {
-      laneX += d.clamp(-12 * dt, 12 * dt);
+    if (d.abs() > 0.002) {
+      laneX += d.clamp(-16 * dt, 16 * dt);
     } else {
       laneX = target;
     }
@@ -134,7 +135,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     coinList.removeWhere((c) => c.z < 0.12);
 
-    if (!ghost && !jetpack && (laneX - target).abs() < 0.22) {
+    if (!ghost && !jetpack && (laneX - target).abs() < 0.2) {
       for (final o in obs) {
         if (o.lane != lane) continue;
         final dz = o.z - kPlayerZ;
@@ -431,8 +432,8 @@ class _Cam {
   final double horizonY;
   final double nearY;
   final double focal;
-  /// Abstand der Bahn-Mitten (größer = klarere Trennung)
-  static const double spread = 0.42;
+  /// Gleiche spread für Schienen UND Figur → Figur sitzt auf der Bahn
+  static const double spread = 0.44;
 
   _Cam(this.size)
       : horizonY = size.height * 0.22,
@@ -466,10 +467,10 @@ class _RunPainter extends CustomPainter {
   final double worldPhase;
   final bool jetpack, ghost, dead;
 
-  /// Halbe Breite einer einzelnen Bahn (Schotter + Schienen)
-  static const double trackHalf = 0.18;
-  /// Schienenabstand innerhalb einer Bahn
-  static const double railGap = 0.11;
+  /// Schotterbett-Hälfte (schmal, klar abgetrennt vom Gras)
+  static const double trackHalf = 0.16;
+  /// Abstand der zwei Schienen innerhalb einer Bahn
+  static const double railGap = 0.09;
 
   _RunPainter({
     required this.laneX,
@@ -530,7 +531,7 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Gras über die ganze Fläche – Bahnen liegen nur als schmale Streifen drauf
+    // Gras (Boden) – Bahnen werden darüber als eigene Streifen gezeichnet
     canvas.drawRect(
       _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
       Paint()
@@ -541,13 +542,13 @@ class _RunPainter extends CustomPainter {
         ).createShader(_r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // === Drei getrennte Bahnen (nicht über die volle Breite) ===
+    // === Drei Bahnen: dunkler Rand = klare Abgrenzung Gras ↔ Schotter ===
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
 
-      // Schotterbett nur unter dieser Bahn
-      for (double z = 2.2; z < 46; z += 0.65) {
+      // Schotterfüllung (dichte Querlinien = Bett)
+      for (double z = 2.0; z < 46; z += 0.45) {
         final a = cam.project(lx - trackHalf, z);
         final b = cam.project(lx + trackHalf, z);
         final sc = cam.scale(z);
@@ -555,31 +556,59 @@ class _RunPainter extends CustomPainter {
           a,
           b,
           Paint()
-            ..color = (on ? const Color(0xFF7A6550) : const Color(0xFF6D5A40))
-                .withOpacity(on ? 0.55 : 0.4)
-            ..strokeWidth = (sc * 0.55).clamp(3.0, 36.0)
-            ..strokeCap = StrokeCap.round,
+            ..color = on
+                ? const Color(0xFF8B7355).withOpacity(0.85)
+                : const Color(0xFF6B5344).withOpacity(0.75)
+            ..strokeWidth = (sc * 0.58).clamp(4.0, 40.0)
+            ..strokeCap = StrokeCap.butt,
         );
       }
 
-      // Schwellen nur auf dieser Bahn
-      final sleep = Paint()..color = const Color(0xFF5D4037);
-      for (double z = 2.5; z < 44; z += 1.5) {
-        final a = cam.project(lx - trackHalf * 0.95, z);
-        final b = cam.project(lx + trackHalf * 0.95, z);
+      // Dunkle Außenkanten (links + rechts) – harte Grenze zum Gras
+      final edgeL = Path();
+      final edgeR = Path();
+      var firstE = true;
+      for (double z = 2.0; z <= 45; z += 0.55) {
+        final pL = cam.project(lx - trackHalf, z);
+        final pR = cam.project(lx + trackHalf, z);
+        if (firstE) {
+          edgeL.moveTo(pL.dx, pL.dy);
+          edgeR.moveTo(pR.dx, pR.dy);
+          firstE = false;
+        } else {
+          edgeL.lineTo(pL.dx, pL.dy);
+          edgeR.lineTo(pR.dx, pR.dy);
+        }
+      }
+      final edgePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = on ? 3.2 : 2.4
+        ..color = on
+            ? const Color(0xFF3E2723)
+            : const Color(0xFF2C1810).withOpacity(0.9);
+      canvas.drawPath(edgeL, edgePaint);
+      canvas.drawPath(edgeR, edgePaint);
+
+      // Schwellen nur auf dem Bett
+      for (double z = 2.4; z < 44; z += 1.35) {
+        final a = cam.project(lx - trackHalf * 0.92, z);
+        final b = cam.project(lx + trackHalf * 0.92, z);
         final sc = cam.scale(z);
         canvas.drawLine(
           a,
           b,
-          sleep..strokeWidth = (sc * 0.12).clamp(1.5, 11.0),
+          Paint()
+            ..color = const Color(0xFF4E342E)
+            ..strokeWidth = (sc * 0.11).clamp(1.5, 10.0),
         );
       }
 
-      // Zwei Schienen dieser Bahn
+      // Zwei Schienen mittig auf dem Bett
       final left = Path();
       final right = Path();
       var first = true;
-      for (double z = 2.0; z <= 44; z += 0.5) {
+      for (double z = 2.0; z <= 44; z += 0.45) {
         final pL = cam.project(lx - railGap, z);
         final pR = cam.project(lx + railGap, z);
         if (first) {
@@ -594,29 +623,28 @@ class _RunPainter extends CustomPainter {
       final railPaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.8 : 2.4
-        ..color = on ? const Color(0xFFFFF59D) : const Color(0xFFE8ECF0);
+        ..strokeWidth = on ? 4.0 : 2.6
+        ..color = on ? const Color(0xFFFFF59D) : const Color(0xFFDCE0E6);
       canvas.drawPath(left, railPaint);
       canvas.drawPath(
         right,
-        railPaint..color = on ? const Color(0xFFFFE082) : const Color(0xFFA8B0BC),
+        railPaint..color = on ? const Color(0xFFFFE082) : const Color(0xFF9EA6B0),
       );
 
-      // Leichter Glow auf aktiver Bahn
       if (on) {
         canvas.drawPath(
           left,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 7
-            ..color = const Color(0xFFFFE082).withOpacity(0.18),
+            ..strokeWidth = 8
+            ..color = const Color(0xFFFFE082).withOpacity(0.2),
         );
         canvas.drawPath(
           right,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 7
-            ..color = const Color(0xFFFFE082).withOpacity(0.18),
+            ..strokeWidth = 8
+            ..color = const Color(0xFFFFE082).withOpacity(0.2),
         );
       }
     }
@@ -664,10 +692,11 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Figur
+    // Figur: exakt dieselbe project()-Formel wie Schienen → läuft auf der Spur
     const playerZ = 3.0;
     final raw = cam.project(laneX, playerZ, jumpY + (jetpack ? 1.5 : 0));
-    final m = size.width * 0.05;
+    // Kein starkes clamp in X – sonst „hängt“ die Figur neben der Schiene
+    final m = size.width * 0.04;
     final px = raw.dx.clamp(m, size.width - m);
     final py = raw.dy.clamp(size.height * 0.3, size.height * 0.93);
     final pScale = cam.scale(playerZ);
@@ -748,9 +777,10 @@ class _RunPainter extends CustomPainter {
     final arm = -sin(phase) * (duck ? 0.08 : (air ? 0.28 : 0.78));
     final bob = duck || air ? 0.0 : sin(phase * 2) * s * 0.1;
 
+    // Schatten zentriert auf Schienenmitte
     c.drawOval(
-      _r(pos.dx - s * 0.58, pos.dy + s * 1.32, s * 1.16, 11),
-      Paint()..color = Colors.black.withOpacity(0.42),
+      _r(pos.dx - s * 0.5, pos.dy + s * 1.28, s, 10),
+      Paint()..color = Colors.black.withOpacity(0.45),
     );
 
     final bodyTop = (duck ? pos.dy + s * 0.16 : pos.dy - s * 0.14) + bob;
