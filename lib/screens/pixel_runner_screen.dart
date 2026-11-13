@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – noch näher am Video
+/// Infinity Run – Münzen ohne Überlappung
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -58,8 +58,10 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   static const double kPlayerZ = 3.0;
   static const int kMaxSparks = 80;
   static const int kMaxObs = 24;
-  static const int kMaxCoins = 34;
+  static const int kMaxCoins = 28;
   static const double duckDuration = 1.8;
+  /// Mindestabstand in Z zwischen zwei Münzen derselben Spur
+  static const double kCoinMinGap = 2.4;
 
   @override
   void initState() {
@@ -97,6 +99,34 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       if ((o.z - z).abs() < minDist) return true;
     }
     return false;
+  }
+
+  bool _coinBusy(int l, double z) {
+    for (final c in coinList) {
+      if (c.lane != l) continue;
+      if ((c.z - z).abs() < kCoinMinGap) return true;
+    }
+    return false;
+  }
+
+  void _spawnCoins() {
+    if (coinList.length >= kMaxCoins) return;
+    // Eine Spur, Kette mit klarem Abstand – nie nebeneinander auf gleicher z
+    var cl = _rng.nextInt(3);
+    for (int tries = 0; tries < 3; tries++) {
+      if (!_coinBusy(cl, 40)) break;
+      cl = (cl + 1) % 3;
+    }
+    if (_coinBusy(cl, 40)) return;
+
+    final chain = 1 + _rng.nextInt(3); // 1–3 Münzen hintereinander
+    final high = _rng.nextDouble() < 0.12;
+    for (int i = 0; i < chain; i++) {
+      final z = 40.0 + i * kCoinMinGap;
+      if (_coinBusy(cl, z)) break;
+      if (coinList.length >= kMaxCoins) break;
+      coinList.add(_Coin(lane: cl, z: z, high: high && i == chain - 1));
+    }
   }
 
   void _frame(double dt) {
@@ -184,13 +214,9 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
 
     coinAcc += dt;
-    if (coinAcc > 0.45 && coinList.length < kMaxCoins) {
+    if (coinAcc > 0.55) {
       coinAcc = 0;
-      final cl = _rng.nextInt(3);
-      final chain = 1 + _rng.nextInt(3);
-      for (int i = 0; i < chain; i++) {
-        coinList.add(_Coin(lane: cl, z: 40 + i * 1.25, high: _rng.nextDouble() < 0.15));
-      }
+      _spawnCoins();
     }
 
     for (final o in obs) {
@@ -202,7 +228,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     coinList.removeWhere((c) => c.z < 0.1);
 
-    // Großzügigeres Timing: früher erkennen, länger reagieren
     if (!ghost && !jetpack && (laneX - target).abs() < 0.15) {
       for (final o in obs) {
         if (o.lane != lane) continue;
@@ -789,11 +814,7 @@ class _RunPainter extends CustomPainter {
       for (double z = 2.0 + tiePhase; z < 30; z += 1.45) {
         final a = cam.project(lx - trackHalf * 0.92, z);
         final b = cam.project(lx + trackHalf * 0.92, z);
-        canvas.drawLine(
-          Offset(a.dx, a.dy + 1),
-          Offset(b.dx, b.dy + 1),
-          Paint()..color = const Color(0xFF3E2723)..strokeWidth = 4.2,
-        );
+        canvas.drawLine(Offset(a.dx, a.dy + 1), Offset(b.dx, b.dy + 1), Paint()..color = const Color(0xFF3E2723)..strokeWidth = 4.2);
         canvas.drawLine(a, b, Paint()..color = const Color(0xFF8D6E63)..strokeWidth = 3.5);
       }
 
@@ -808,32 +829,18 @@ class _RunPainter extends CustomPainter {
         ..color = on ? const Color(0xFFFAFAFA) : const Color(0xFF90A4AE);
       canvas.drawLine(pL0, pL1, metal);
       canvas.drawLine(pR0, pR1, metal);
-      // leichter Glanz auf aktiver Schiene
       if (on) {
-        canvas.drawLine(
-          pL0,
-          pL1,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2
-            ..color = Colors.white.withOpacity(0.35),
-        );
-        canvas.drawLine(
-          pR0,
-          pR1,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2
-            ..color = Colors.white.withOpacity(0.35),
-        );
+        canvas.drawLine(pL0, pL1, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2..color = Colors.white.withOpacity(0.35));
+        canvas.drawLine(pR0, pR1, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2..color = Colors.white.withOpacity(0.35));
       }
     }
 
+    // Münzen – klar getrennt, nie überlappend gezeichnet
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 40) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.65 : 0.15);
-      final r = cam.objectSize(c.z, 13.0).clamp(8.5, 15.0);
-      canvas.drawCircle(p.translate(1.5, 2.0), r, Paint()..color = Colors.black.withOpacity(0.2));
+      final r = cam.objectSize(c.z, 12.0).clamp(7.5, 13.5);
+      canvas.drawCircle(p.translate(1.4, 1.8), r, Paint()..color = Colors.black.withOpacity(0.18));
       canvas.drawCircle(
         p,
         r,
@@ -843,7 +850,7 @@ class _RunPainter extends CustomPainter {
             colors: const [Color(0xFFFFFDE7), Color(0xFFFFEE58), Color(0xFFFFC107), Color(0xFFF57F17)],
           ).createShader(_r(p.dx - r, p.dy - r, r * 2, r * 2)),
       );
-      canvas.drawCircle(p, r * 0.62, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4..color = const Color(0xFFFFF59D));
+      canvas.drawCircle(p, r * 0.6, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.3..color = const Color(0xFFFFF59D));
     }
 
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
@@ -871,11 +878,6 @@ class _RunPainter extends CustomPainter {
                 colors: [Color(0xFFFFE082), Color(0xFFFFA000), Color(0xFFE65100)],
               ).createShader(body.outerRect),
           );
-          canvas.drawLine(
-            Offset(b.dx - ww * 0.35, b.dy - hh * 0.38),
-            Offset(b.dx + ww * 0.35, b.dy - hh * 0.38),
-            Paint()..color = const Color(0xFFBF360C).withOpacity(0.5)..strokeWidth = 1.6,
-          );
         }
       } else if (o.kind == 1 || o.kind == 7) {
         final h = cam.objectSize(o.z, 54.0).clamp(38.0, 60.0);
@@ -902,16 +904,6 @@ class _RunPainter extends CustomPainter {
                       : const Color(0xFFEF5350);
           final body = RRect.fromRectAndRadius(_r(b.dx - ww / 2, b.dy - hh * 0.9, ww, hh), const Radius.circular(5));
           canvas.drawRRect(body, Paint()..color = mid);
-          // Dachstreifen
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(_r(b.dx - ww * 0.48, b.dy - hh * 0.95, ww * 0.96, hh * 0.12), const Radius.circular(2)),
-            Paint()..color = mid.withOpacity(0.7),
-          );
-          canvas.drawLine(
-            Offset(b.dx - ww * 0.48, b.dy - hh * 0.52),
-            Offset(b.dx + ww * 0.48, b.dy - hh * 0.52),
-            Paint()..color = Colors.white.withOpacity(0.3)..strokeWidth = 2.2,
-          );
           for (int j = 0; j < 3; j++) {
             canvas.drawRRect(
               RRect.fromRectAndRadius(
@@ -927,10 +919,8 @@ class _RunPainter extends CustomPainter {
               Paint()..color = const Color(0xFFA5D6A7),
             );
           }
-          // Räder
-          final wheelY = b.dy - hh * 0.08;
-          canvas.drawCircle(Offset(b.dx - ww * 0.28, wheelY), ww * 0.08, Paint()..color = const Color(0xFF37474F));
-          canvas.drawCircle(Offset(b.dx + ww * 0.28, wheelY), ww * 0.08, Paint()..color = const Color(0xFF37474F));
+          canvas.drawCircle(Offset(b.dx - ww * 0.28, b.dy - hh * 0.08), ww * 0.08, Paint()..color = const Color(0xFF37474F));
+          canvas.drawCircle(Offset(b.dx + ww * 0.28, b.dy - hh * 0.08), ww * 0.08, Paint()..color = const Color(0xFF37474F));
         }
       }
     }
