@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – stabilere Projektion + reichere Subway-Optik
+/// Infinity Run – Subway-Boden/Schienen, stabile Projektion
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -445,7 +445,6 @@ class _Coin {
   _Coin({required this.lane, required this.z, this.high = false});
 }
 
-/// Gleich wie zuletzt stabil: milde Perspektive, keine Y-Krümmung
 class _Cam {
   final Size size;
   final double horizonY;
@@ -483,8 +482,8 @@ class _RunPainter extends CustomPainter {
   final bool jetpack, ghost, dead;
   final double speed;
 
-  static const double trackHalf = 0.11;
-  static const double railGap = 0.052;
+  static const double trackHalf = 0.125;
+  static const double railGap = 0.055;
 
   _RunPainter({
     required this.laneX,
@@ -509,7 +508,6 @@ class _RunPainter extends CustomPainter {
     if (size.width < 40 || size.height < 40) return;
     final cam = _Cam(size);
 
-    // Himmel mit Wolken-Streifen
     canvas.drawRect(
       Offset.zero & size,
       Paint()
@@ -517,34 +515,32 @@ class _RunPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color(0xFF4A90C8),
-            Color(0xFF7EB8E0),
-            Color(0xFFB8D4A0),
-            Color(0xFF9BCF70),
+            Color(0xFF5BA8D0),
+            Color(0xFF8EC5E8),
+            Color(0xFFC5DCA0),
+            Color(0xFFA8D070),
           ],
-          stops: [0, 0.32, 0.55, 1],
+          stops: [0, 0.30, 0.52, 1],
         ).createShader(Offset.zero & size),
     );
 
-    // Sonne + Glow
     final sunC = Offset(size.width * 0.82, size.height * 0.1);
     canvas.drawCircle(
       sunC,
-      size.width * 0.055,
+      size.width * 0.05,
       Paint()
-        ..color = const Color(0xFFFFE082).withOpacity(0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+        ..color = const Color(0xFFFFE082).withOpacity(0.22)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
     );
     canvas.drawCircle(
       sunC,
-      size.width * 0.034,
+      size.width * 0.032,
       Paint()
         ..shader = RadialGradient(
-          colors: const [Color(0xFFFFFFCC), Color(0xFFFFC107), Color(0xFFFF8F00)],
-        ).createShader(_r(sunC.dx - 24, sunC.dy - 24, 48, 48)),
+          colors: const [Color(0xFFFFFFCC), Color(0xFFFFC107)],
+        ).createShader(_r(sunC.dx - 22, sunC.dy - 22, 44, 44)),
     );
 
-    // Skyline
     final skyShift = (worldPhase * 3.5) % (size.width * 0.035);
     for (int i = -1; i < 12; i++) {
       final x = size.width * (0.015 * i) - skyShift;
@@ -555,16 +551,17 @@ class _RunPainter extends CustomPainter {
           Rect.fromLTWH(x, cam.horizonY - h, bw, h),
           const Radius.circular(2),
         ),
-        Paint()..color = Color.lerp(
-              const Color(0xFF2C4A5C),
-              const Color(0xFF5A7A8C),
-              ((i + 3) % 4) / 4,
-            )!
-            .withOpacity(0.7),
+        Paint()
+          ..color = Color.lerp(
+            const Color(0xFF2C4A5C),
+            const Color(0xFF5A7A8C),
+            ((i + 3) % 4) / 4,
+          )!
+              .withOpacity(0.65),
       );
     }
 
-    // Gras mit leichter Textur
+    // Gras
     canvas.drawRect(
       _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
       Paint()
@@ -572,22 +569,63 @@ class _RunPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: const [
-            Color(0xFFC5E06A),
-            Color(0xFF8BC34A),
-            Color(0xFF689F38),
+            Color(0xFFB8D44A),
+            Color(0xFF7CB342),
             Color(0xFF558B2F),
           ],
         ).createShader(
             _r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // 3 parallele Bahnen (unveränderte Projektion)
+    // Grauer Schotter-/Betonstreifen unter allen Spuren (Subway)
+    final bedL = cam.project(-1.55, 1.3);
+    final bedR = cam.project(1.55, 1.3);
+    final bedFL = cam.project(-1.55, 32);
+    final bedFR = cam.project(1.55, 32);
+    final bigBed = Path()
+      ..moveTo(bedL.dx, bedL.dy)
+      ..lineTo(bedR.dx, bedR.dy)
+      ..lineTo(bedFR.dx, bedFR.dy)
+      ..lineTo(bedFL.dx, bedFL.dy)
+      ..close();
+    canvas.drawPath(
+      bigBed,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [
+            Color(0xFF9E9E9E),
+            Color(0xFF757575),
+            Color(0xFF616161),
+          ],
+        ).createShader(Rect.fromPoints(bedL, bedFR)),
+    );
+
+    final rng = Random(42);
+    for (int i = 0; i < 70; i++) {
+      final t = rng.nextDouble();
+      final side = rng.nextDouble() * 2 - 1;
+      final p = cam.project(side * 1.4, 2 + t * 28);
+      canvas.drawCircle(
+        p,
+        1.2 + rng.nextDouble() * 1.4,
+        Paint()
+          ..color = Color.lerp(
+            const Color(0xFFBDBDBD),
+            const Color(0xFF424242),
+            rng.nextDouble(),
+          )!
+              .withOpacity(0.45),
+      );
+    }
+
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
 
-      final nearL = cam.project(lx - trackHalf, 1.4);
-      final nearR = cam.project(lx + trackHalf, 1.4);
+      final nearL = cam.project(lx - trackHalf, 1.35);
+      final nearR = cam.project(lx + trackHalf, 1.35);
       final farL = cam.project(lx - trackHalf, 32);
       final farR = cam.project(lx + trackHalf, 32);
 
@@ -600,72 +638,88 @@ class _RunPainter extends CustomPainter {
       canvas.drawPath(
         bed,
         Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: on
-                ? const [Color(0xFF6D4C3D), Color(0xFFA1887F), Color(0xFF6D4C3D)]
-                : const [Color(0xFF4E342E), Color(0xFF795548), Color(0xFF4E342E)],
-          ).createShader(Rect.fromPoints(nearL, farR)),
+          ..color = on
+              ? const Color(0xFF5D4037).withOpacity(0.5)
+              : const Color(0xFF4E342E).withOpacity(0.35),
       );
 
       final edge = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = on ? 2.6 : 1.7
-        ..color = const Color(0xFF1A0F0A);
+        ..strokeWidth = on ? 2.8 : 1.8
+        ..color = const Color(0xFF212121);
       canvas.drawLine(nearL, farL, edge);
       canvas.drawLine(nearR, farR, edge);
 
-      // Schwellen mit leichtem 3D
-      for (double z = 2.2; z < 30; z += 1.65) {
-        final a = cam.project(lx - trackHalf * 0.9, z);
-        final b = cam.project(lx + trackHalf * 0.9, z);
+      // Holzschwellen
+      for (double z = 2.0; z < 30; z += 1.55) {
+        final a = cam.project(lx - trackHalf * 0.92, z);
+        final b = cam.project(lx + trackHalf * 0.92, z);
+        canvas.drawLine(
+          Offset(a.dx, a.dy + 1.2),
+          Offset(b.dx, b.dy + 1.2),
+          Paint()
+            ..color = const Color(0xFF3E2723)
+            ..strokeWidth = 4.0,
+        );
         canvas.drawLine(
           a,
           b,
           Paint()
-            ..color = const Color(0xFF3E2723)
-            ..strokeWidth = 3.0,
+            ..color = const Color(0xFF6D4C41)
+            ..strokeWidth = 3.2,
         );
         canvas.drawLine(
-          Offset(a.dx, a.dy - 1.2),
-          Offset(b.dx, b.dy - 1.2),
+          Offset(a.dx, a.dy - 1.0),
+          Offset(b.dx, b.dy - 1.0),
           Paint()
-            ..color = const Color(0xFF6D4C41)
-            ..strokeWidth = 1.4,
+            ..color = const Color(0xFF8D6E63)
+            ..strokeWidth = 1.2,
         );
       }
 
-      // Schienen metallisch
-      final pL0 = cam.project(lx - railGap, 1.4);
+      final pL0 = cam.project(lx - railGap, 1.35);
       final pL1 = cam.project(lx - railGap, 32);
-      final pR0 = cam.project(lx + railGap, 1.4);
+      final pR0 = cam.project(lx + railGap, 1.35);
       final pR1 = cam.project(lx + railGap, 32);
-      final railPaint = Paint()
+
+      final shadow = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = on ? 4.0 : 2.8
+        ..color = Colors.black.withOpacity(0.35)
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+          Offset(pL0.dx, pL0.dy + 1.5), Offset(pL1.dx, pL1.dy + 1.5), shadow);
+      canvas.drawLine(
+          Offset(pR0.dx, pR0.dy + 1.5), Offset(pR1.dx, pR1.dy + 1.5), shadow);
+
+      final metal = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.4 : 2.2
-        ..color = on ? const Color(0xFFFFF8E1) : const Color(0xFFB0BEC5);
-      canvas.drawLine(pL0, pL1, railPaint);
-      canvas.drawLine(
-        pR0,
-        pR1,
-        railPaint..color = on ? const Color(0xFFFFE082) : const Color(0xFF90A4AE),
-      );
-      // Highlight auf aktiver Schiene
+        ..strokeWidth = on ? 3.6 : 2.4
+        ..color = on ? const Color(0xFFECEFF1) : const Color(0xFF90A4AE);
+      canvas.drawLine(pL0, pL1, metal);
+      canvas.drawLine(pR0, pR1, metal);
+
       if (on) {
         canvas.drawLine(
           pL0,
           pL1,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2
+            ..strokeWidth = 1.3
+            ..color = Colors.white.withOpacity(0.55),
+        );
+        canvas.drawLine(
+          pR0,
+          pR1,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.3
             ..color = Colors.white.withOpacity(0.45),
         );
       }
     }
 
-    // Münzen glänzend
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 30) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.6 : 0.12);
@@ -696,7 +750,6 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Hindernisse: Züge / Barrieren / Tunnel (flach, stabile Größe)
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
       if (o.z < 1.8 || o.z > 30) continue;
@@ -704,7 +757,6 @@ class _RunPainter extends CustomPainter {
       final w = cam.objectSize(o.z, size.width * 0.11).clamp(22.0, 48.0);
 
       if (o.kind == 0) {
-        // niedrige Barriere – springen
         final h = cam.objectSize(o.z, 22.0).clamp(16.0, 26.0);
         _trainCar(canvas, base.dx, base.dy - h * 0.35, w, h, 5,
             const Color(0xFFFFE0B2),
@@ -712,7 +764,6 @@ class _RunPainter extends CustomPainter {
             const Color(0xFFE65100),
             windows: false);
       } else if (o.kind == 1) {
-        // hohe Barriere – ducken
         final h = cam.objectSize(o.z, 48.0).clamp(34.0, 54.0);
         _trainCar(canvas, base.dx, base.dy - h * 0.65, w * 0.9, h, 5,
             const Color(0xFFE1BEE7),
@@ -720,7 +771,6 @@ class _RunPainter extends CustomPainter {
             const Color(0xFF6A1B9A),
             windows: true);
       } else {
-        // Zug
         final h = cam.objectSize(o.z, 42.0).clamp(30.0, 48.0);
         final cyan = o.hue < 0.5;
         _trainCar(
@@ -739,7 +789,6 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Figur auf Schienenmitte
     final feet = cam.project(laneX, 3.0, 0);
     final body = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.1 : 0));
     _runner(
@@ -777,7 +826,6 @@ class _RunPainter extends CustomPainter {
     w = w.clamp(8.0, 60.0);
     h = h.clamp(8.0, 60.0);
 
-    // Schatten
     canvas.drawOval(
       _r(cx - w * 0.45, cy + h * 0.42, w * 0.9, 6),
       Paint()..color = Colors.black.withOpacity(0.25),
@@ -813,7 +861,6 @@ class _RunPainter extends CustomPainter {
         ).createShader(front.outerRect),
     );
 
-    // Fenster
     if (windows) {
       final rows = isTrain ? 2 : 1;
       final cols = isTrain ? 3 : 2;
@@ -834,7 +881,6 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Streifen
     canvas.drawLine(
       Offset(cx - w / 2 + 2, cy + h * 0.15),
       Offset(cx + w / 2 - 2, cy + h * 0.15),
@@ -885,7 +931,6 @@ class _RunPainter extends CustomPainter {
     final rightFoot = Offset(pos.dx + s * 0.28 + leg * s * 0.48, footY);
     c.drawLine(hip, leftFoot, lp);
     c.drawLine(hip, rightFoot, lp);
-    // Schuhe
     c.drawRRect(
       RRect.fromRectAndRadius(
         _r(leftFoot.dx - s * 0.12, leftFoot.dy - s * 0.04, s * 0.24, s * 0.1),
@@ -914,7 +959,6 @@ class _RunPainter extends CustomPainter {
           colors: [skin, accent, dark],
         ).createShader(body.outerRect),
     );
-    // Gürtel
     c.drawRect(
       _r(pos.dx - s * 0.3, bodyTop + bodyH * 0.55, s * 0.6, s * 0.08),
       Paint()..color = const Color(0xFF37474F),
@@ -941,7 +985,6 @@ class _RunPainter extends CustomPainter {
           colors: [Colors.white.withOpacity(0.95), skin, dark],
         ).createShader(_r(pos.dx - hr, headY - hr, hr * 2, hr * 2)),
     );
-    // Augen
     c.drawCircle(Offset(pos.dx - hr * 0.28, headY - hr * 0.05), hr * 0.12,
         Paint()..color = Colors.white);
     c.drawCircle(Offset(pos.dx + hr * 0.28, headY - hr * 0.05), hr * 0.12,
