@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – Münzen ohne Überlappung
+/// Infinity Run – stabiler Abstand Münzen/Hindernisse (keine Abstands-Verzerrung)
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -60,8 +60,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   static const int kMaxObs = 24;
   static const int kMaxCoins = 28;
   static const double duckDuration = 1.8;
-  /// Mindestabstand in Z zwischen zwei Münzen derselben Spur
-  static const double kCoinMinGap = 2.4;
+  static const double kCoinMinGap = 2.6;
 
   @override
   void initState() {
@@ -111,7 +110,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
 
   void _spawnCoins() {
     if (coinList.length >= kMaxCoins) return;
-    // Eine Spur, Kette mit klarem Abstand – nie nebeneinander auf gleicher z
     var cl = _rng.nextInt(3);
     for (int tries = 0; tries < 3; tries++) {
       if (!_coinBusy(cl, 40)) break;
@@ -119,7 +117,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     if (_coinBusy(cl, 40)) return;
 
-    final chain = 1 + _rng.nextInt(3); // 1–3 Münzen hintereinander
+    final chain = 1 + _rng.nextInt(3);
     final high = _rng.nextDouble() < 0.12;
     for (int i = 0; i < chain; i++) {
       final z = 40.0 + i * kCoinMinGap;
@@ -616,27 +614,33 @@ class _Spark {
   _Spark({required this.x, required this.z, this.y = 0, required this.vy, required this.life, required this.color});
 }
 
+/// Fast lineare Tiefen-Projektion: gleicher World-Abstand ≈ gleicher Bildschirm-Abstand
 class _Cam {
   final Size size;
   final double horizonY;
   final double groundY;
-  static const double nearSpread = 0.25;
+  /// Spur-Breite bleibt über die Tiefe fast konstant (kaum Fächer)
+  static const double laneSpread = 0.255;
 
   _Cam(this.size)
-      : horizonY = size.height * 0.33,
-        groundY = size.height * 0.75;
+      : horizonY = size.height * 0.32,
+        groundY = size.height * 0.76;
 
+  /// t linear in z → sy linear → Abstand zwischen z und z+gap bleibt konstant
   Offset project(double lx, double z, [double y = 0]) {
-    final t = ((z - 1.0) / 33.0).clamp(0.0, 1.0);
-    final spread = nearSpread * (1.0 - t * 0.24);
+    final t = ((z - 1.0) / 34.0).clamp(0.0, 1.0);
+    // nur sehr schwache Spur-Verengung (kein starkes Fächern)
+    final spread = laneSpread * (1.0 - t * 0.08);
     final sx = size.width * 0.5 + lx * size.width * spread;
-    final sy = groundY + (horizonY - groundY) * t - y * (1.0 - t) * size.height * 0.09;
+    // linear entlang der Bahn
+    final sy = groundY + (horizonY - groundY) * t - y * size.height * 0.085;
     return Offset(sx, sy);
   }
 
+  /// Größe ändert sich nur minimal mit der Tiefe → kein „Aufblasen“ naher Objekte
   double objectSize(double z, double base) {
-    final t = ((z - 1.0) / 33.0).clamp(0.0, 1.0);
-    return base * (1.0 - t * 0.15);
+    final t = ((z - 1.0) / 34.0).clamp(0.0, 1.0);
+    return base * (1.0 - t * 0.06);
   }
 }
 
@@ -829,18 +833,14 @@ class _RunPainter extends CustomPainter {
         ..color = on ? const Color(0xFFFAFAFA) : const Color(0xFF90A4AE);
       canvas.drawLine(pL0, pL1, metal);
       canvas.drawLine(pR0, pR1, metal);
-      if (on) {
-        canvas.drawLine(pL0, pL1, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2..color = Colors.white.withOpacity(0.35));
-        canvas.drawLine(pR0, pR1, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2..color = Colors.white.withOpacity(0.35));
-      }
     }
 
-    // Münzen – klar getrennt, nie überlappend gezeichnet
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 40) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.65 : 0.15);
-      final r = cam.objectSize(c.z, 12.0).clamp(7.5, 13.5);
-      canvas.drawCircle(p.translate(1.4, 1.8), r, Paint()..color = Colors.black.withOpacity(0.18));
+      // feste Basisgröße – kaum Größenänderung → Abstand wirkt stabil
+      final r = cam.objectSize(c.z, 11.5).clamp(9.0, 12.5);
+      canvas.drawCircle(p.translate(1.3, 1.6), r, Paint()..color = Colors.black.withOpacity(0.18));
       canvas.drawCircle(
         p,
         r,
@@ -850,7 +850,7 @@ class _RunPainter extends CustomPainter {
             colors: const [Color(0xFFFFFDE7), Color(0xFFFFEE58), Color(0xFFFFC107), Color(0xFFF57F17)],
           ).createShader(_r(p.dx - r, p.dy - r, r * 2, r * 2)),
       );
-      canvas.drawCircle(p, r * 0.6, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.3..color = const Color(0xFFFFF59D));
+      canvas.drawCircle(p, r * 0.6, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.2..color = const Color(0xFFFFF59D));
     }
 
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
@@ -858,7 +858,7 @@ class _RunPainter extends CustomPainter {
       if (o.z > 40) continue;
       final lx = (o.lane - 1).toDouble();
       final base = cam.project(lx, o.z);
-      final w = cam.objectSize(o.z, size.width * 0.13).clamp(28.0, 56.0);
+      final w = cam.objectSize(o.z, size.width * 0.12).clamp(30.0, 52.0);
 
       if (o.kind == 0 || o.kind == 3 || o.kind == 6 || o.kind == 8) {
         final steps = o.kind == 3 ? max(2, (o.length / 0.85).round()) : (o.kind == 6 ? 2 : 1);
@@ -866,8 +866,8 @@ class _RunPainter extends CustomPainter {
           final zz = o.z + i * (o.length / max(1, steps));
           if (zz < 1.8 || zz > 40) continue;
           final b = cam.project(lx, zz);
-          final ww = cam.objectSize(zz, size.width * 0.12).clamp(26.0, 54.0);
-          final hh = cam.objectSize(zz, o.kind == 8 ? 32.0 : 19.0).clamp(14.0, 38.0);
+          final ww = cam.objectSize(zz, size.width * 0.11).clamp(28.0, 50.0);
+          final hh = cam.objectSize(zz, o.kind == 8 ? 30.0 : 18.0).clamp(15.0, 34.0);
           final body = RRect.fromRectAndRadius(_r(b.dx - ww / 2, b.dy - hh * 0.74, ww, hh), const Radius.circular(3));
           canvas.drawRRect(
             body,
@@ -880,7 +880,7 @@ class _RunPainter extends CustomPainter {
           );
         }
       } else if (o.kind == 1 || o.kind == 7) {
-        final h = cam.objectSize(o.z, 54.0).clamp(38.0, 60.0);
+        final h = cam.objectSize(o.z, 52.0).clamp(40.0, 56.0);
         canvas.drawRRect(
           RRect.fromRectAndRadius(_r(base.dx - w * 0.54, base.dy - h * 0.97, w, h * 0.22), const Radius.circular(3)),
           Paint()..color = const Color(0xFFFF9800),
@@ -893,8 +893,8 @@ class _RunPainter extends CustomPainter {
           final zz = o.z + i * (o.length / max(1, steps));
           if (zz < 1.8 || zz > 40) continue;
           final b = cam.project(lx, zz);
-          final ww = cam.objectSize(zz, size.width * 0.14).clamp(30.0, 58.0);
-          final hh = cam.objectSize(zz, 50.0).clamp(38.0, 56.0);
+          final ww = cam.objectSize(zz, size.width * 0.13).clamp(32.0, 54.0);
+          final hh = cam.objectSize(zz, 48.0).clamp(40.0, 54.0);
           final mid = o.kind == 4
               ? const Color(0xFF66BB6A)
               : o.kind == 5
