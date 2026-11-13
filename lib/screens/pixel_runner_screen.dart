@@ -1,11 +1,10 @@
 import 'dart:math';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – höhere Detailstufe, mehr Partikel/Schatten, stabile Projektion
+/// Infinity Run – stabile Projektion, sichere Verbesserungen
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -53,6 +52,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   static const double jumpPower = 14.2;
   static const double gravity = 21.0;
   static const double kPlayerZ = 3.0;
+  static const int kMaxSparks = 48;
 
   @override
   void initState() {
@@ -61,7 +61,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       high = p.getInt('run_high') ?? 0;
       if (mounted) setState(() {});
     });
-    // Ticker = Display-Refresh (60/120 Hz je nach Gerät)
     _ticker = createTicker(_onTick)..start();
   }
 
@@ -78,6 +77,13 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   void dispose() {
     _ticker.dispose();
     super.dispose();
+  }
+
+  void _addSpark(_Spark s) {
+    if (sparks.length >= kMaxSparks) {
+      sparks.removeAt(0);
+    }
+    sparks.add(s);
   }
 
   void _frame(double dt) {
@@ -115,14 +121,15 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     if (jetpack) {
       jetpackT -= dt;
       if (jetpackT <= 0) jetpack = false;
-      // Jetpack-Funken
-      if (_rng.nextDouble() < 0.45) {
-        sparks.add(_Spark(
+      if (_rng.nextDouble() < 0.4) {
+        _addSpark(_Spark(
           x: laneX + (_rng.nextDouble() - 0.5) * 0.15,
           z: kPlayerZ - 0.2,
           vy: 0.8 + _rng.nextDouble(),
           life: 0.35 + _rng.nextDouble() * 0.25,
-          color: _rng.nextBool() ? const Color(0xFFFFEB3B) : const Color(0xFFFF6D00),
+          color: _rng.nextBool()
+              ? const Color(0xFFFFEB3B)
+              : const Color(0xFFFF6D00),
         ));
       }
     }
@@ -189,8 +196,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
         coins++;
         c.z = -10;
         HapticFeedback.lightImpact();
-        for (int i = 0; i < 6; i++) {
-          sparks.add(_Spark(
+        for (int i = 0; i < 5; i++) {
+          _addSpark(_Spark(
             x: laneX + (_rng.nextDouble() - 0.5) * 0.2,
             z: kPlayerZ,
             vy: 0.5 + _rng.nextDouble(),
@@ -299,10 +306,13 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                   ),
                   const Spacer(),
                   _chip('$score', Icons.speed_rounded),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _chip('$coins', Icons.monetization_on_rounded,
                       Colors.amberAccent),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  _chip('HI $high', Icons.emoji_events_rounded,
+                      Colors.orangeAccent),
+                  const SizedBox(width: 6),
                   _chip('Spur ${lane + 1}', Icons.view_column_rounded,
                       Colors.lightGreenAccent),
                 ],
@@ -425,7 +435,11 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                         backgroundColor: Colors.black26,
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('Play again'),
+                      child: Text(
+                        score >= high && score > 0
+                            ? 'Play again · New high $high'
+                            : 'Play again · High $high',
+                      ),
                     ),
                   ],
                 ],
@@ -438,7 +452,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   }
 
   Widget _chip(String v, IconData icon, [Color c = Colors.white]) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.32),
           borderRadius: BorderRadius.circular(20),
@@ -446,11 +460,11 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: c),
-            const SizedBox(width: 5),
+            Icon(icon, size: 13, color: c),
+            const SizedBox(width: 4),
             Text(v,
                 style: TextStyle(
-                    color: c, fontWeight: FontWeight.w700, fontSize: 13)),
+                    color: c, fontWeight: FontWeight.w700, fontSize: 12)),
           ],
         ),
       );
@@ -564,7 +578,6 @@ class _RunPainter extends CustomPainter {
     if (size.width < 40 || size.height < 40) return;
     final cam = _Cam(size);
 
-    // Himmel – mehr Stufen
     canvas.drawRect(
       Offset.zero & size,
       Paint()
@@ -582,14 +595,13 @@ class _RunPainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Sonne mit Glow
     final sunC = Offset(size.width * 0.82, size.height * 0.09);
     for (final r in [0.08, 0.055, 0.035]) {
       canvas.drawCircle(
         sunC,
         size.width * r,
         Paint()
-          ..color = Color(0xFFFFE082).withOpacity(0.12 / (r * 12))
+          ..color = const Color(0xFFFFE082).withOpacity(0.12 / (r * 12))
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12 + r * 80),
       );
     }
@@ -602,15 +614,14 @@ class _RunPainter extends CustomPainter {
         ).createShader(_r(sunC.dx - 24, sunC.dy - 24, 48, 48)),
     );
 
-    // Wolken
     final cloudShift = (worldPhase * 2.2) % (size.width * 0.4);
     for (int i = 0; i < 5; i++) {
-      final cx = (size.width * (0.15 + i * 0.22) - cloudShift) % (size.width + 80) - 40;
+      final cx =
+          (size.width * (0.15 + i * 0.22) - cloudShift) % (size.width + 80) - 40;
       final cy = size.height * (0.08 + (i % 3) * 0.04);
       _cloud(canvas, cx, cy, 28 + i * 4.0);
     }
 
-    // Skyline
     final skyShift = (worldPhase * 3.5) % (size.width * 0.035);
     for (int i = -1; i < 14; i++) {
       final x = size.width * (0.014 * i) - skyShift;
@@ -629,7 +640,6 @@ class _RunPainter extends CustomPainter {
           )!
               .withOpacity(0.7),
       );
-      // Fenster-Lichter
       if (h > size.height * 0.04) {
         for (int wy = 0; wy < 3; wy++) {
           canvas.drawRect(
@@ -640,7 +650,6 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Gras
     canvas.drawRect(
       _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
       Paint()
@@ -657,7 +666,6 @@ class _RunPainter extends CustomPainter {
             _r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // Schotterbett
     final bedL = cam.project(-1.55, 1.3);
     final bedR = cam.project(1.55, 1.3);
     final bedFL = cam.project(-1.55, 32);
@@ -684,7 +692,7 @@ class _RunPainter extends CustomPainter {
     );
 
     final rng = Random(42);
-    for (int i = 0; i < 120; i++) {
+    for (int i = 0; i < 100; i++) {
       final t = rng.nextDouble();
       final side = rng.nextDouble() * 2 - 1;
       final p = cam.project(side * 1.45, 2 + t * 28);
@@ -701,7 +709,6 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Spuren
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
@@ -801,7 +808,6 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Münzen
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 30) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.6 : 0.12);
@@ -833,7 +839,6 @@ class _RunPainter extends CustomPainter {
       );
     }
 
-    // Hindernisse
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
       if (o.z < 1.8 || o.z > 30) continue;
@@ -852,7 +857,6 @@ class _RunPainter extends CustomPainter {
       }
     }
 
-    // Partikel
     for (final s in sparks) {
       if (s.z < 1.5 || s.z > 20) continue;
       final p = cam.project(s.x, s.z, s.y);
@@ -960,7 +964,8 @@ class _RunPainter extends CustomPainter {
     );
   }
 
-  void _train(Canvas canvas, double cx, double cy, double w, double h, bool cyan) {
+  void _train(
+      Canvas canvas, double cx, double cy, double w, double h, bool cyan) {
     w = w.clamp(12.0, 60.0);
     h = h.clamp(22.0, 56.0);
     final light = cyan ? const Color(0xFFE0F7FA) : const Color(0xFFFFEBEE);
