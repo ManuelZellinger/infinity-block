@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – fast konstante Größen, Figur exakt auf Schienenmitte
+/// Infinity Run – stabilere Projektion + reichere Subway-Optik
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -116,7 +116,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       spawnAcc = 0;
       final l = _rng.nextInt(3);
       final r = _rng.nextDouble();
-      final kind = r < 0.45 ? 0 : (r < 0.72 ? 1 : 2);
+      final kind = r < 0.42 ? 0 : (r < 0.7 ? 1 : 2);
       obs.add(_Obs(lane: l, z: 34, kind: kind, hue: _rng.nextDouble()));
     }
 
@@ -445,7 +445,7 @@ class _Coin {
   _Coin({required this.lane, required this.z, this.high = false});
 }
 
-/// Sehr milde Perspektive – Objekte fast gleich groß nah und fern
+/// Gleich wie zuletzt stabil: milde Perspektive, keine Y-Krümmung
 class _Cam {
   final Size size;
   final double horizonY;
@@ -458,7 +458,6 @@ class _Cam {
 
   Offset project(double lx, double z, [double y = 0]) {
     final t = ((z - 1.0) / 33.0).clamp(0.0, 1.0);
-    // Nur 30 % Verengung nach hinten
     final spread = nearSpread * (1.0 - t * 0.30);
     final sx = size.width * 0.5 + lx * size.width * spread;
     final sy =
@@ -466,7 +465,6 @@ class _Cam {
     return Offset(sx, sy);
   }
 
-  /// Fast konstante Größe (max ~20 % Unterschied)
   double objectSize(double z, double base) {
     final t = ((z - 1.0) / 33.0).clamp(0.0, 1.0);
     return base * (1.0 - t * 0.20);
@@ -511,49 +509,79 @@ class _RunPainter extends CustomPainter {
     if (size.width < 40 || size.height < 40) return;
     final cam = _Cam(size);
 
+    // Himmel mit Wolken-Streifen
     canvas.drawRect(
       Offset.zero & size,
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF5BA8D0), Color(0xFF9BCFE8), Color(0xFFC8E0A0)],
-          stops: [0, 0.4, 1],
+          colors: [
+            Color(0xFF4A90C8),
+            Color(0xFF7EB8E0),
+            Color(0xFFB8D4A0),
+            Color(0xFF9BCF70),
+          ],
+          stops: [0, 0.32, 0.55, 1],
         ).createShader(Offset.zero & size),
     );
 
+    // Sonne + Glow
     final sunC = Offset(size.width * 0.82, size.height * 0.1);
+    canvas.drawCircle(
+      sunC,
+      size.width * 0.055,
+      Paint()
+        ..color = const Color(0xFFFFE082).withOpacity(0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+    );
     canvas.drawCircle(
       sunC,
       size.width * 0.034,
       Paint()
         ..shader = RadialGradient(
-          colors: const [Color(0xFFFFFFB0), Color(0xFFFFC107)],
+          colors: const [Color(0xFFFFFFCC), Color(0xFFFFC107), Color(0xFFFF8F00)],
         ).createShader(_r(sunC.dx - 24, sunC.dy - 24, 48, 48)),
     );
 
+    // Skyline
     final skyShift = (worldPhase * 3.5) % (size.width * 0.035);
-    for (int i = -1; i < 10; i++) {
-      final x = size.width * (0.016 * i) - skyShift;
-      final h = size.height * (0.028 + ((i + 7) * 11 % 4) * 0.018);
-      canvas.drawRect(
-        Rect.fromLTWH(x, cam.horizonY - h, size.width * 0.034, h),
-        Paint()..color = const Color(0xFF3D5A6C).withOpacity(0.55),
+    for (int i = -1; i < 12; i++) {
+      final x = size.width * (0.015 * i) - skyShift;
+      final h = size.height * (0.03 + ((i + 7) * 11 % 5) * 0.016);
+      final bw = size.width * (0.028 + (i % 3) * 0.008);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, cam.horizonY - h, bw, h),
+          const Radius.circular(2),
+        ),
+        Paint()..color = Color.lerp(
+              const Color(0xFF2C4A5C),
+              const Color(0xFF5A7A8C),
+              ((i + 3) % 4) / 4,
+            )!
+            .withOpacity(0.7),
       );
     }
 
+    // Gras mit leichter Textur
     canvas.drawRect(
       _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: const [Color(0xFFB8D050), Color(0xFF7CB342), Color(0xFF558B2F)],
+          colors: const [
+            Color(0xFFC5E06A),
+            Color(0xFF8BC34A),
+            Color(0xFF689F38),
+            Color(0xFF558B2F),
+          ],
         ).createShader(
             _r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
     );
 
-    // 3 parallele Bahnen
+    // 3 parallele Bahnen (unveränderte Projektion)
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
@@ -572,112 +600,153 @@ class _RunPainter extends CustomPainter {
       canvas.drawPath(
         bed,
         Paint()
-          ..color = on
-              ? const Color(0xFF8B7355).withOpacity(0.93)
-              : const Color(0xFF6B5344).withOpacity(0.83),
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: on
+                ? const [Color(0xFF6D4C3D), Color(0xFFA1887F), Color(0xFF6D4C3D)]
+                : const [Color(0xFF4E342E), Color(0xFF795548), Color(0xFF4E342E)],
+          ).createShader(Rect.fromPoints(nearL, farR)),
       );
 
       final edge = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = on ? 2.4 : 1.6
-        ..color = const Color(0xFF2C1810);
+        ..strokeWidth = on ? 2.6 : 1.7
+        ..color = const Color(0xFF1A0F0A);
       canvas.drawLine(nearL, farL, edge);
       canvas.drawLine(nearR, farR, edge);
 
-      for (double z = 2.2; z < 30; z += 1.7) {
+      // Schwellen mit leichtem 3D
+      for (double z = 2.2; z < 30; z += 1.65) {
         final a = cam.project(lx - trackHalf * 0.9, z);
         final b = cam.project(lx + trackHalf * 0.9, z);
         canvas.drawLine(
           a,
           b,
           Paint()
-            ..color = const Color(0xFF4E342E)
-            ..strokeWidth = 2.2,
+            ..color = const Color(0xFF3E2723)
+            ..strokeWidth = 3.0,
+        );
+        canvas.drawLine(
+          Offset(a.dx, a.dy - 1.2),
+          Offset(b.dx, b.dy - 1.2),
+          Paint()
+            ..color = const Color(0xFF6D4C41)
+            ..strokeWidth = 1.4,
         );
       }
 
+      // Schienen metallisch
       final pL0 = cam.project(lx - railGap, 1.4);
       final pL1 = cam.project(lx - railGap, 32);
       final pR0 = cam.project(lx + railGap, 1.4);
       final pR1 = cam.project(lx + railGap, 32);
-      final rp = Paint()
+      final railPaint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.2 : 2.0
-        ..color = on ? const Color(0xFFFFF59D) : const Color(0xFFD0D5DC);
-      canvas.drawLine(pL0, pL1, rp);
+        ..strokeWidth = on ? 3.4 : 2.2
+        ..color = on ? const Color(0xFFFFF8E1) : const Color(0xFFB0BEC5);
+      canvas.drawLine(pL0, pL1, railPaint);
       canvas.drawLine(
         pR0,
         pR1,
-        rp..color = on ? const Color(0xFFFFE082) : const Color(0xFF9AA3AE),
+        railPaint..color = on ? const Color(0xFFFFE082) : const Color(0xFF90A4AE),
       );
+      // Highlight auf aktiver Schiene
+      if (on) {
+        canvas.drawLine(
+          pL0,
+          pL1,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2
+            ..color = Colors.white.withOpacity(0.45),
+        );
+      }
     }
 
-    // Münzen: fast konstante Größe
+    // Münzen glänzend
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 30) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.6 : 0.12);
       final r = cam.objectSize(c.z, 11.0).clamp(7.0, 12.0);
       canvas.drawCircle(
+        p.translate(1.5, 2),
+        r * 0.95,
+        Paint()..color = Colors.black.withOpacity(0.2),
+      );
+      canvas.drawCircle(
         p,
         r,
         Paint()
           ..shader = RadialGradient(
+            center: const Alignment(-0.35, -0.4),
             colors: const [
               Color(0xFFFFFDE7),
               Color(0xFFFFD54F),
-              Color(0xFFF57F17)
+              Color(0xFFF9A825),
+              Color(0xFFF57F17),
             ],
           ).createShader(_r(p.dx - r, p.dy - r, r * 2, r * 2)),
       );
+      canvas.drawCircle(
+        Offset(p.dx - r * 0.25, p.dy - r * 0.3),
+        r * 0.22,
+        Paint()..color = Colors.white.withOpacity(0.7),
+      );
     }
 
-    // Hindernisse: flach, fast konstante Größe, Breite ~ Spur
+    // Hindernisse: Züge / Barrieren / Tunnel (flach, stabile Größe)
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
       if (o.z < 1.8 || o.z > 30) continue;
       final base = cam.project((o.lane - 1).toDouble(), o.z);
-      // Basisbreite relativ zur nahen Spur, kaum skaliert
       final w = cam.objectSize(o.z, size.width * 0.11).clamp(22.0, 48.0);
-      final d = 5.0; // flache 3D-Kante, wenig Verzerrung
 
       if (o.kind == 0) {
+        // niedrige Barriere – springen
         final h = cam.objectSize(o.z, 22.0).clamp(16.0, 26.0);
-        _flatBox(canvas, base.dx, base.dy - h * 0.35, w, h, d,
-            const Color(0xFFFFF3E0),
+        _trainCar(canvas, base.dx, base.dy - h * 0.35, w, h, 5,
+            const Color(0xFFFFE0B2),
             const Color(0xFFFF9800),
-            const Color(0xFFE65100));
+            const Color(0xFFE65100),
+            windows: false);
       } else if (o.kind == 1) {
+        // hohe Barriere – ducken
         final h = cam.objectSize(o.z, 48.0).clamp(34.0, 54.0);
-        _flatBox(canvas, base.dx, base.dy - h * 0.65, w * 0.9, h, d,
-            const Color(0xFFF3E5F5),
+        _trainCar(canvas, base.dx, base.dy - h * 0.65, w * 0.9, h, 5,
+            const Color(0xFFE1BEE7),
             const Color(0xFFAB47BC),
-            const Color(0xFF6A1B9A));
+            const Color(0xFF6A1B9A),
+            windows: true);
       } else {
+        // Zug
         final h = cam.objectSize(o.z, 42.0).clamp(30.0, 48.0);
         final cyan = o.hue < 0.5;
-        _flatBox(
+        _trainCar(
           canvas,
           base.dx,
           base.dy - h * 0.38,
-          w,
+          w * 1.05,
           h,
-          d,
+          6,
           cyan ? const Color(0xFFE0F7FA) : const Color(0xFFFFEBEE),
           cyan ? const Color(0xFF26C6DA) : const Color(0xFFEF5350),
           cyan ? const Color(0xFF00838F) : const Color(0xFFC62828),
+          windows: true,
+          isTrain: true,
         );
       }
     }
 
-    // Figur EXAKT auf Schienenmitte (gleiche project-Formel)
+    // Figur auf Schienenmitte
     final feet = cam.project(laneX, 3.0, 0);
     final body = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.1 : 0));
     _runner(
       canvas,
       Offset(body.dx, body.dy),
       feet.dy,
-      1.25,
+      1.28,
       runPhase,
       ducking,
       jumpY > 0.12,
@@ -692,8 +761,7 @@ class _RunPainter extends CustomPainter {
     }
   }
 
-  /// Flaches Hindernis – minimale 3D-Kante, keine starke Verzerrung
-  void _flatBox(
+  void _trainCar(
     Canvas canvas,
     double cx,
     double cy,
@@ -702,11 +770,19 @@ class _RunPainter extends CustomPainter {
     double d,
     Color light,
     Color mid,
-    Color dark,
-  ) {
+    Color dark, {
+    bool windows = false,
+    bool isTrain = false,
+  }) {
     w = w.clamp(8.0, 60.0);
     h = h.clamp(8.0, 60.0);
-    // rechte Kante (sehr flach)
+
+    // Schatten
+    canvas.drawOval(
+      _r(cx - w * 0.45, cy + h * 0.42, w * 0.9, 6),
+      Paint()..color = Colors.black.withOpacity(0.25),
+    );
+
     final right = Path()
       ..moveTo(cx + w / 2, cy - h / 2)
       ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.2)
@@ -714,7 +790,7 @@ class _RunPainter extends CustomPainter {
       ..lineTo(cx + w / 2, cy + h / 2)
       ..close();
     canvas.drawPath(right, Paint()..color = dark);
-    // Oberkante
+
     final top = Path()
       ..moveTo(cx - w / 2, cy - h / 2)
       ..lineTo(cx - w / 2 + d * 0.15, cy - h / 2 - d * 0.25)
@@ -722,10 +798,10 @@ class _RunPainter extends CustomPainter {
       ..lineTo(cx + w / 2, cy - h / 2)
       ..close();
     canvas.drawPath(top, Paint()..color = light);
-    // Front
+
     final front = RRect.fromRectAndRadius(
       _r(cx - w / 2, cy - h / 2, w, h),
-      const Radius.circular(3),
+      const Radius.circular(4),
     );
     canvas.drawRRect(
       front,
@@ -735,6 +811,36 @@ class _RunPainter extends CustomPainter {
           end: Alignment.bottomCenter,
           colors: [light, mid, dark],
         ).createShader(front.outerRect),
+    );
+
+    // Fenster
+    if (windows) {
+      final rows = isTrain ? 2 : 1;
+      final cols = isTrain ? 3 : 2;
+      final mw = w * 0.16;
+      final mh = h * 0.18;
+      for (int row = 0; row < rows; row++) {
+        for (int col = 0; col < cols; col++) {
+          final wx = cx - w * 0.32 + col * (w * 0.28);
+          final wy = cy - h * 0.28 + row * (h * 0.32);
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              _r(wx, wy, mw, mh),
+              const Radius.circular(2),
+            ),
+            Paint()..color = const Color(0xFF81D4FA).withOpacity(0.85),
+          );
+        }
+      }
+    }
+
+    // Streifen
+    canvas.drawLine(
+      Offset(cx - w / 2 + 2, cy + h * 0.15),
+      Offset(cx + w / 2 - 2, cy + h * 0.15),
+      Paint()
+        ..color = Colors.white.withOpacity(0.35)
+        ..strokeWidth = 1.5,
     );
   }
 
@@ -754,20 +860,19 @@ class _RunPainter extends CustomPainter {
     final skin =
         ghost ? Colors.purpleAccent.withOpacity(0.9) : const Color(0xFF29B6F6);
     final dark = ghost ? Colors.deepPurple : const Color(0xFF01579B);
+    final accent = ghost ? Colors.deepPurpleAccent : const Color(0xFF0277BD);
 
     final legSwing = sin(phase);
     final leg = legSwing * (duck ? 0.05 : (air ? 0.15 : 0.95));
     final arm = -legSwing * (duck ? 0.04 : (air ? 0.15 : 0.85));
     final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.12);
 
-    // Schatten auf Boden (Schienenhöhe)
     c.drawOval(
       _r(pos.dx - s * 0.38, groundY + s * 0.08, s * 0.76, 6),
       Paint()..color = Colors.black.withOpacity(0.35),
     );
 
-    final bodyTop =
-        (duck ? pos.dy + s * 0.1 : pos.dy - s * 0.15) + bob;
+    final bodyTop = (duck ? pos.dy + s * 0.1 : pos.dy - s * 0.15) + bob;
     final bodyH = duck ? s * 0.45 : s * 1.0;
     final hip = Offset(pos.dx, bodyTop + bodyH * 0.55);
     final footY = groundY;
@@ -776,14 +881,25 @@ class _RunPainter extends CustomPainter {
       ..color = dark
       ..strokeWidth = s * 0.25
       ..strokeCap = StrokeCap.round;
-    final leftFoot =
-        Offset(pos.dx - s * 0.28 - leg * s * 0.48, footY);
-    final rightFoot =
-        Offset(pos.dx + s * 0.28 + leg * s * 0.48, footY);
+    final leftFoot = Offset(pos.dx - s * 0.28 - leg * s * 0.48, footY);
+    final rightFoot = Offset(pos.dx + s * 0.28 + leg * s * 0.48, footY);
     c.drawLine(hip, leftFoot, lp);
     c.drawLine(hip, rightFoot, lp);
-    c.drawCircle(leftFoot, s * 0.09, Paint()..color = dark);
-    c.drawCircle(rightFoot, s * 0.09, Paint()..color = dark);
+    // Schuhe
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        _r(leftFoot.dx - s * 0.12, leftFoot.dy - s * 0.04, s * 0.24, s * 0.1),
+        Radius.circular(s * 0.04),
+      ),
+      Paint()..color = const Color(0xFF212121),
+    );
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        _r(rightFoot.dx - s * 0.12, rightFoot.dy - s * 0.04, s * 0.24, s * 0.1),
+        Radius.circular(s * 0.04),
+      ),
+      Paint()..color = const Color(0xFF212121),
+    );
 
     final body = RRect.fromRectAndRadius(
       _r(pos.dx - s * 0.32, bodyTop, s * 0.64, bodyH),
@@ -795,8 +911,13 @@ class _RunPainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [skin, dark],
+          colors: [skin, accent, dark],
         ).createShader(body.outerRect),
+    );
+    // Gürtel
+    c.drawRect(
+      _r(pos.dx - s * 0.3, bodyTop + bodyH * 0.55, s * 0.6, s * 0.08),
+      Paint()..color = const Color(0xFF37474F),
     );
 
     final sh = Offset(pos.dx, bodyTop + bodyH * 0.08);
@@ -816,12 +937,22 @@ class _RunPainter extends CustomPainter {
       hr,
       Paint()
         ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.35),
           colors: [Colors.white.withOpacity(0.95), skin, dark],
         ).createShader(_r(pos.dx - hr, headY - hr, hr * 2, hr * 2)),
     );
+    // Augen
+    c.drawCircle(Offset(pos.dx - hr * 0.28, headY - hr * 0.05), hr * 0.12,
+        Paint()..color = Colors.white);
+    c.drawCircle(Offset(pos.dx + hr * 0.28, headY - hr * 0.05), hr * 0.12,
+        Paint()..color = Colors.white);
+    c.drawCircle(Offset(pos.dx - hr * 0.28, headY - hr * 0.05), hr * 0.06,
+        Paint()..color = const Color(0xFF1A237E));
+    c.drawCircle(Offset(pos.dx + hr * 0.28, headY - hr * 0.05), hr * 0.06,
+        Paint()..color = const Color(0xFF1A237E));
 
     if (jet) {
-      final jr = 10.0;
+      final jr = 11.0;
       c.drawCircle(
         Offset(pos.dx, pos.dy + s * 0.9),
         jr,
