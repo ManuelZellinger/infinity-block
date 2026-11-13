@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – lange Hindernisse, stehende/begehbare Züge, Münzen, stabile Projektion
+/// Infinity Run – Subway-Hindernisse (Bretter, Stangen, Züge), Reaktionszeit wie im Video
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -20,7 +20,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   int lane = 1;
   double laneX = 0.0;
 
-  double speed = 7.2;
+  double speed = 7.0;
   double dist = 0;
   int score = 0;
   int coins = 0;
@@ -33,7 +33,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   double duckT = 0;
   double runPhase = 0;
 
-  /// Auf Zugdach laufen
   bool onTrain = false;
   double onTrainT = 0;
 
@@ -53,13 +52,23 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   double coinAcc = 0;
   double worldPhase = 0;
 
-  static const double jumpPower = 15.5;
-  static const double gravity = 19.5;
+  // Subway-ähnliche Physik
+  static const double jumpPower = 16.0;
+  static const double gravity = 20.0;
   static const double kPlayerZ = 3.0;
   static const int kMaxSparks = 64;
-  static const double duckDuration = 1.55;
+  static const double duckDuration = 1.6;
 
-  // kind: 0 low jump, 1 high duck, 2 block train, 3 long barrier, 4 rideable train, 5 stationary train
+  // kind:
+  // 0 low board/jump
+  // 1 high board duck
+  // 2 blocking train
+  // 3 long low boards
+  // 4 rideable train
+  // 5 parked train
+  // 6 double low (two segments)
+  // 7 overhead pole (duck)
+  // 8 tall pole cluster (jump)
 
   @override
   void initState() {
@@ -105,7 +114,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     dist += speed * dt;
     worldPhase += speed * dt * 0.12;
     score = dist.toInt() + coins * 5;
-    speed = min(14.5, 7.2 + dist * 0.00135);
+    speed = min(14.0, 7.0 + dist * 0.00125);
 
     final cadence =
         ducking ? 2.5 : (jumpY > 0.2 || onTrain ? 2.0 : 11.0 + speed * 0.5);
@@ -133,7 +142,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     if (jetpack) {
       jetpackT -= dt;
       if (jetpackT <= 0) jetpack = false;
-      if (_rng.nextDouble() < 0.4) {
+      if (_rng.nextDouble() < 0.35) {
         _addSpark(_Spark(
           x: laneX + (_rng.nextDouble() - 0.5) * 0.15,
           z: kPlayerZ - 0.2,
@@ -157,54 +166,30 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     sparks.removeWhere((s) => s.life <= 0);
 
+    // Früher spawnen → mehr Reaktionszeit wie im Video
     spawnAcc += dt;
-    if (spawnAcc > max(1.15, 1.9 - dist / 7000)) {
+    final spawnGap = max(1.35, 2.15 - dist / 8000);
+    if (spawnAcc > spawnGap) {
       spawnAcc = 0;
-      final l = _rng.nextInt(3);
-      final r = _rng.nextDouble();
-      int kind;
-      if (r < 0.28) {
-        kind = 0; // niedrig
-      } else if (r < 0.48) {
-        kind = 1; // hoch ducken
-      } else if (r < 0.62) {
-        kind = 2; // blockierender Zug
-      } else if (r < 0.76) {
-        kind = 3; // langes Hindernis
-      } else if (r < 0.90) {
-        kind = 4; // begehbarer Zug
-      } else {
-        kind = 5; // stillstehend (langsam)
-      }
-      final length = kind == 3 ? 2.8 + _rng.nextDouble() * 2.2 : (kind == 4 || kind == 5 ? 2.2 + _rng.nextDouble() : 1.0);
-      obs.add(_Obs(
-        lane: l,
-        z: 36,
-        kind: kind,
-        hue: _rng.nextDouble(),
-        length: length,
-        stationary: kind == 5,
-      ));
+      _spawnObstacle();
     }
 
     coinAcc += dt;
-    if (coinAcc > 0.38) {
+    if (coinAcc > 0.4) {
       coinAcc = 0;
-      // Münzketten auf einer Spur
       final cl = _rng.nextInt(3);
-      final chain = 1 + _rng.nextInt(3);
+      final chain = 1 + _rng.nextInt(4);
       for (int i = 0; i < chain; i++) {
         coinList.add(_Coin(
           lane: cl,
-          z: 36 + i * 1.15,
-          high: _rng.nextDouble() < 0.18,
+          z: 40 + i * 1.1,
+          high: _rng.nextDouble() < 0.2,
         ));
       }
     }
 
     for (final o in obs) {
-      // Stillstehende Züge bewegen sich langsamer (wirken „stehend“ relativ)
-      final factor = o.stationary ? 0.35 : 1.0;
+      final factor = o.stationary ? 0.32 : 1.0;
       o.z -= speed * dt * factor;
     }
     obs.removeWhere((o) => o.z + o.length < 0.1);
@@ -213,75 +198,123 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
     coinList.removeWhere((c) => c.z < 0.1);
 
-    // Kollision / begehbare Züge
     if (!ghost && !jetpack && (laneX - target).abs() < 0.15) {
       for (final o in obs) {
         if (o.lane != lane) continue;
         final zFront = o.z;
         final zBack = o.z + o.length;
-        final inSpan = kPlayerZ >= zFront - 0.15 && kPlayerZ <= zBack + 0.2;
+        final inSpan = kPlayerZ >= zFront - 0.2 && kPlayerZ <= zBack + 0.25;
         if (!inSpan) continue;
 
-        if (o.kind == 4) {
-          // Begehbarer Zug: springen → auf dem Dach
-          if (jumpY > 0.55 || onTrain) {
-            if (!onTrain) {
-              onTrain = true;
-              onTrainT = 1.8;
-              jumpY = 0;
-              jumpV = 0;
-              HapticFeedback.selectionClick();
+        switch (o.kind) {
+          case 4: // rideable
+            if (jumpY > 0.55 || onTrain) {
+              if (!onTrain) {
+                onTrain = true;
+                onTrainT = 1.9;
+                jumpY = 0;
+                jumpV = 0;
+                HapticFeedback.selectionClick();
+              }
+            } else {
+              _die();
+              return;
             }
-            continue;
-          }
-          if (jumpY < 0.55) {
-            _die();
-            return;
-          }
-        } else if (o.kind == 5) {
-          // Stillstehend: springen oder Spur wechseln
-          if (jumpY < 0.7) {
-            _die();
-            return;
-          }
-        } else if (o.kind == 0 || o.kind == 3) {
-          if (jumpY < 0.7 && !onTrain) {
-            _die();
-            return;
-          }
-        } else if (o.kind == 1) {
-          if (!ducking && !onTrain) {
-            _die();
-            return;
-          }
-        } else if (o.kind == 2) {
-          if (!onTrain) {
-            _die();
-            return;
-          }
+            break;
+          case 1:
+          case 7: // duck
+            if (!ducking && !onTrain) {
+              _die();
+              return;
+            }
+            break;
+          case 2: // block train – must change lane (or ghost/jet)
+            if (!onTrain) {
+              _die();
+              return;
+            }
+            break;
+          default: // jump over
+            if (jumpY < 0.65 && !onTrain) {
+              _die();
+              return;
+            }
         }
       }
     }
 
     for (final c in coinList) {
-      if (c.lane == lane && (c.z - kPlayerZ).abs() < 1.2) {
+      if (c.lane == lane && (c.z - kPlayerZ).abs() < 1.25) {
         if (c.high && jumpY < 0.2 && !onTrain) continue;
         if (!c.high && ducking) continue;
         coins++;
         c.z = -10;
         HapticFeedback.lightImpact();
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 4; i++) {
           _addSpark(_Spark(
             x: laneX + (_rng.nextDouble() - 0.5) * 0.2,
             z: kPlayerZ,
             vy: 0.5 + _rng.nextDouble(),
-            life: 0.25 + _rng.nextDouble() * 0.2,
+            life: 0.2 + _rng.nextDouble() * 0.2,
             color: const Color(0xFFFFD54F),
           ));
         }
       }
     }
     if (mounted) setState(() {});
+  }
+
+  void _spawnObstacle() {
+    final l = _rng.nextInt(3);
+    final r = _rng.nextDouble();
+    int kind;
+    if (r < 0.16) {
+      kind = 0; // low board
+    } else if (r < 0.30) {
+      kind = 1; // high board duck
+    } else if (r < 0.42) {
+      kind = 2; // blocking train
+    } else if (r < 0.54) {
+      kind = 3; // long low
+    } else if (r < 0.64) {
+      kind = 4; // rideable
+    } else if (r < 0.72) {
+      kind = 5; // parked
+    } else if (r < 0.82) {
+      kind = 6; // double low
+    } else if (r < 0.92) {
+      kind = 7; // overhead pole
+    } else {
+      kind = 8; // pole cluster jump
+    }
+
+    double length = 1.0;
+    if (kind == 3) length = 3.0 + _rng.nextDouble() * 2.5;
+    if (kind == 4 || kind == 5 || kind == 2) length = 2.0 + _rng.nextDouble() * 1.5;
+    if (kind == 6) length = 2.4;
+
+    // Spawn weit weg → Reaktionszeit
+    obs.add(_Obs(
+      lane: l,
+      z: 42,
+      kind: kind,
+      hue: _rng.nextDouble(),
+      length: length,
+      stationary: kind == 5,
+    ));
+
+    // manchmal zweite Spur parallel (wie im Video)
+    if (_rng.nextDouble() < 0.28 && kind != 4) {
+      final l2 = (l + 1 + _rng.nextInt(2)) % 3;
+      obs.add(_Obs(
+        lane: l2,
+        z: 42 + _rng.nextDouble() * 2,
+        kind: kind == 2 ? 0 : kind,
+        hue: _rng.nextDouble(),
+        length: kind == 3 ? 2.5 : 1.0,
+        stationary: false,
+      ));
+    }
   }
 
   Future<void> _die() async {
@@ -302,7 +335,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     setState(() {
       lane = 1;
       laneX = 0;
-      speed = 7.2;
+      speed = 7.0;
       dist = 0;
       score = 0;
       coins = 0;
@@ -771,25 +804,24 @@ class _RunPainter extends CustomPainter {
     );
 
     final rng = Random(42);
-    for (int i = 0; i < 90; i++) {
+    for (int i = 0; i < 80; i++) {
       final t = rng.nextDouble();
       final side = rng.nextDouble() * 2 - 1;
       final p = cam.project(side * 1.45, 2 + t * 28);
       canvas.drawCircle(
         p,
-        1.0 + rng.nextDouble() * 1.6,
+        1.0 + rng.nextDouble() * 1.5,
         Paint()
           ..color = Color.lerp(
             const Color(0xFFCFCFCF),
             const Color(0xFF3A3A3A),
             rng.nextDouble(),
           )!
-              .withOpacity(0.48),
+              .withOpacity(0.45),
       );
     }
 
     final tiePhase = (worldPhase * 2.4) % 1.5;
-
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
@@ -828,21 +860,14 @@ class _RunPainter extends CustomPainter {
           Offset(b.dx, b.dy + 1.2),
           Paint()
             ..color = const Color(0xFF3E2723)
-            ..strokeWidth = 4.2,
+            ..strokeWidth = 4.0,
         );
         canvas.drawLine(
           a,
           b,
           Paint()
             ..color = const Color(0xFF6D4C41)
-            ..strokeWidth = 3.3,
-        );
-        canvas.drawLine(
-          Offset(a.dx, a.dy - 1.0),
-          Offset(b.dx, b.dy - 1.0),
-          Paint()
-            ..color = const Color(0xFFA1887F)
-            ..strokeWidth = 1.3,
+            ..strokeWidth = 3.2,
         );
       }
 
@@ -850,29 +875,17 @@ class _RunPainter extends CustomPainter {
       final pL1 = cam.project(lx - railGap, 32);
       final pR0 = cam.project(lx + railGap, 1.35);
       final pR1 = cam.project(lx + railGap, 32);
-
-      final shadow = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = on ? 4.2 : 3.0
-        ..color = Colors.black.withOpacity(0.4)
-        ..strokeCap = StrokeCap.round;
-      canvas.drawLine(
-          Offset(pL0.dx, pL0.dy + 1.6), Offset(pL1.dx, pL1.dy + 1.6), shadow);
-      canvas.drawLine(
-          Offset(pR0.dx, pR0.dy + 1.6), Offset(pR1.dx, pR1.dy + 1.6), shadow);
-
       final metal = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = on ? 3.8 : 2.5
+        ..strokeWidth = on ? 3.6 : 2.4
         ..color = on ? const Color(0xFFF5F5F5) : const Color(0xFF90A4AE);
       canvas.drawLine(pL0, pL1, metal);
       canvas.drawLine(pR0, pR1, metal);
     }
 
-    // Münzen – goldene 3D-Scheiben
     for (final c in coins) {
-      if (c.z < 1.8 || c.z > 34) continue;
+      if (c.z < 1.8 || c.z > 40) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.65 : 0.15);
       final r = cam.objectSize(c.z, 12.0).clamp(7.5, 14.0);
       _drawCoin(canvas, p, r);
@@ -880,54 +893,78 @@ class _RunPainter extends CustomPainter {
 
     final sorted = [...obs]..sort((a, b) => b.z.compareTo(a.z));
     for (final o in sorted) {
-      if (o.z > 34) continue;
+      if (o.z > 40) continue;
       final lx = (o.lane - 1).toDouble();
 
-      if (o.kind == 3) {
-        // langes Hindernis: mehrere Segmente entlang z
-        final steps = max(2, (o.length / 0.9).round());
-        for (int i = 0; i < steps; i++) {
-          final zz = o.z + i * (o.length / steps);
-          if (zz < 1.8 || zz > 34) continue;
-          final base = cam.project(lx, zz);
-          final w = cam.objectSize(zz, size.width * 0.11).clamp(22.0, 48.0);
-          final h = cam.objectSize(zz, 16.0).clamp(11.0, 20.0);
-          _barrier(canvas, base.dx, base.dy - h * 0.28, w, h);
-        }
-      } else if (o.kind == 0) {
-        if (o.z < 1.8) continue;
-        final base = cam.project(lx, o.z);
-        final w = cam.objectSize(o.z, size.width * 0.12).clamp(24.0, 52.0);
-        final h = cam.objectSize(o.z, 18.0).clamp(12.0, 22.0);
-        _barrier(canvas, base.dx, base.dy - h * 0.28, w, h);
-      } else if (o.kind == 1) {
-        if (o.z < 1.8) continue;
-        final base = cam.project(lx, o.z);
-        final w = cam.objectSize(o.z, size.width * 0.12).clamp(24.0, 52.0);
-        final h = cam.objectSize(o.z, 50.0).clamp(34.0, 56.0);
-        _highBarrier(canvas, base.dx, base.dy - h * 0.58, w * 0.9, h);
-      } else {
-        // Züge: 2, 4, 5 – ggf. länger
-        final steps = max(1, (o.length / 1.1).round());
-        for (int i = 0; i < steps; i++) {
-          final zz = o.z + i * (o.length / max(1, steps));
-          if (zz < 1.8 || zz > 34) continue;
-          final base = cam.project(lx, zz);
-          final w = cam.objectSize(zz, size.width * 0.13).clamp(26.0, 54.0);
-          final h = cam.objectSize(zz, 46.0).clamp(34.0, 52.0);
-          final ride = o.kind == 4;
-          final park = o.kind == 5;
-          _train(
-            canvas,
-            base.dx,
-            base.dy - h * 0.32,
-            w * 1.08,
-            h,
-            o.hue < 0.5,
-            rideable: ride,
-            parked: park,
-          );
-        }
+      switch (o.kind) {
+        case 0: // low board
+          if (o.z < 1.8) break;
+          final base = cam.project(lx, o.z);
+          final w = cam.objectSize(o.z, size.width * 0.13).clamp(26.0, 54.0);
+          final h = cam.objectSize(o.z, 17.0).clamp(12.0, 22.0);
+          _board(canvas, base.dx, base.dy - h * 0.25, w, h, low: true);
+          break;
+        case 1: // high board duck
+          if (o.z < 1.8) break;
+          final base = cam.project(lx, o.z);
+          final w = cam.objectSize(o.z, size.width * 0.12).clamp(24.0, 52.0);
+          final h = cam.objectSize(o.z, 52.0).clamp(36.0, 58.0);
+          _board(canvas, base.dx, base.dy - h * 0.55, w * 0.95, h, low: false);
+          break;
+        case 3: // long low boards
+          final steps = max(2, (o.length / 0.85).round());
+          for (int i = 0; i < steps; i++) {
+            final zz = o.z + i * (o.length / steps);
+            if (zz < 1.8 || zz > 40) continue;
+            final base = cam.project(lx, zz);
+            final w = cam.objectSize(zz, size.width * 0.11).clamp(22.0, 48.0);
+            final h = cam.objectSize(zz, 15.0).clamp(11.0, 19.0);
+            _board(canvas, base.dx, base.dy - h * 0.25, w, h, low: true);
+          }
+          break;
+        case 6: // double low
+          for (final off in [0.0, 1.2]) {
+            final zz = o.z + off;
+            if (zz < 1.8 || zz > 40) continue;
+            final base = cam.project(lx, zz);
+            final w = cam.objectSize(zz, size.width * 0.12).clamp(24.0, 50.0);
+            final h = cam.objectSize(zz, 16.0).clamp(12.0, 20.0);
+            _board(canvas, base.dx, base.dy - h * 0.25, w, h, low: true);
+          }
+          break;
+        case 7: // overhead pole
+          if (o.z < 1.8) break;
+          final base = cam.project(lx, o.z);
+          final w = cam.objectSize(o.z, size.width * 0.11).clamp(22.0, 48.0);
+          final h = cam.objectSize(o.z, 48.0).clamp(34.0, 54.0);
+          _overhead(canvas, base.dx, base.dy - h * 0.5, w, h);
+          break;
+        case 8: // poles jump
+          if (o.z < 1.8) break;
+          final base = cam.project(lx, o.z);
+          final w = cam.objectSize(o.z, size.width * 0.1).clamp(20.0, 44.0);
+          final h = cam.objectSize(o.z, 28.0).clamp(18.0, 34.0);
+          _poles(canvas, base.dx, base.dy - h * 0.35, w, h);
+          break;
+        default: // trains 2,4,5
+          final steps = max(1, (o.length / 1.1).round());
+          for (int i = 0; i < steps; i++) {
+            final zz = o.z + i * (o.length / max(1, steps));
+            if (zz < 1.8 || zz > 40) continue;
+            final base = cam.project(lx, zz);
+            final w = cam.objectSize(zz, size.width * 0.13).clamp(26.0, 54.0);
+            final h = cam.objectSize(zz, 46.0).clamp(34.0, 52.0);
+            _train(
+              canvas,
+              base.dx,
+              base.dy - h * 0.32,
+              w * 1.08,
+              h,
+              o.hue < 0.5,
+              rideable: o.kind == 4,
+              parked: o.kind == 5,
+            );
+          }
       }
     }
 
@@ -968,7 +1005,6 @@ class _RunPainter extends CustomPainter {
       r,
       Paint()..color = Colors.black.withOpacity(0.25),
     );
-    // dicke Münze
     canvas.drawOval(
       _r(p.dx - r * 0.95, p.dy - r * 0.85, r * 1.9, r * 1.7),
       Paint()
@@ -991,19 +1027,6 @@ class _RunPainter extends CustomPainter {
         ..strokeWidth = 1.6
         ..color = const Color(0xFFFFF59D).withOpacity(0.9),
     );
-    // $ Symbol
-    final tp = TextPainter(
-      text: TextSpan(
-        text: r > 10 ? '€' : '•',
-        style: TextStyle(
-          color: const Color(0xFF5D4037).withOpacity(0.85),
-          fontSize: r * 0.9,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(p.dx - tp.width / 2, p.dy - tp.height / 2));
     canvas.drawCircle(
       Offset(p.dx - r * 0.28, p.dy - r * 0.32),
       r * 0.2,
@@ -1016,74 +1039,132 @@ class _RunPainter extends CustomPainter {
     canvas.drawCircle(Offset(cx, cy), s * 0.45, p);
     canvas.drawCircle(Offset(cx + s * 0.35, cy + 2), s * 0.38, p);
     canvas.drawCircle(Offset(cx - s * 0.3, cy + 3), s * 0.32, p);
-    canvas.drawCircle(Offset(cx + s * 0.1, cy - s * 0.15), s * 0.28, p);
   }
 
-  void _barrier(Canvas canvas, double cx, double cy, double w, double h) {
-    w = w.clamp(10.0, 56.0);
-    h = h.clamp(10.0, 28.0);
+  /// Bretter: niedrig = springen, hoch = ducken
+  void _board(
+    Canvas canvas,
+    double cx,
+    double cy,
+    double w,
+    double h, {
+    required bool low,
+  }) {
+    w = w.clamp(10.0, 58.0);
+    h = h.clamp(10.0, 60.0);
     canvas.drawOval(
       _r(cx - w * 0.4, cy + h * 0.4, w * 0.8, 5),
-      Paint()..color = Colors.black.withOpacity(0.25),
+      Paint()..color = Colors.black.withOpacity(0.22),
     );
-    final body = RRect.fromRectAndRadius(
-      _r(cx - w / 2, cy - h / 2, w, h),
-      const Radius.circular(3),
-    );
-    canvas.drawRRect(
-      body,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFFFF59D),
-            Color(0xFFFFCA28),
-            Color(0xFFFFA000),
-            Color(0xFFE65100),
-          ],
-        ).createShader(body.outerRect),
-    );
-    for (int i = 0; i < 4; i++) {
-      final x = cx - w * 0.38 + i * w * 0.22;
-      canvas.drawRect(
-        _r(x, cy - h * 0.28, w * 0.1, h * 0.55),
-        Paint()..color = const Color(0xFF212121).withOpacity(0.4),
+    if (low) {
+      // Holzbrett mit Streifen
+      final body = RRect.fromRectAndRadius(
+        _r(cx - w / 2, cy - h / 2, w, h),
+        const Radius.circular(2),
+      );
+      canvas.drawRRect(
+        body,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFFE082),
+              Color(0xFFFFB300),
+              Color(0xFFF57C00),
+              Color(0xFFE65100),
+            ],
+          ).createShader(body.outerRect),
+      );
+      for (int i = 0; i < 5; i++) {
+        final x = cx - w * 0.4 + i * w * 0.18;
+        canvas.drawRect(
+          _r(x, cy - h * 0.35, w * 0.08, h * 0.7),
+          Paint()..color = const Color(0xFF3E2723).withOpacity(0.35),
+        );
+      }
+    } else {
+      // hohe Querstange auf Pfosten
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _r(cx - w * 0.48, cy - h * 0.1, w * 0.12, h * 0.7),
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFF5D4037),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _r(cx + w * 0.36, cy - h * 0.1, w * 0.12, h * 0.7),
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFF5D4037),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _r(cx - w * 0.5, cy - h * 0.48, w, h * 0.2),
+          const Radius.circular(3),
+        ),
+        Paint()
+          ..shader = const LinearGradient(
+            colors: [
+              Color(0xFFFFCC80),
+              Color(0xFFFF9800),
+              Color(0xFFE65100),
+            ],
+          ).createShader(_r(cx - w * 0.5, cy - h * 0.48, w, h * 0.2)),
       );
     }
   }
 
-  void _highBarrier(Canvas canvas, double cx, double cy, double w, double h) {
+  void _overhead(Canvas canvas, double cx, double cy, double w, double h) {
     w = w.clamp(10.0, 56.0);
-    h = h.clamp(20.0, 60.0);
-    canvas.drawOval(
-      _r(cx - w * 0.4, cy + h * 0.42, w * 0.8, 5),
-      Paint()..color = Colors.black.withOpacity(0.25),
-    );
+    h = h.clamp(20.0, 58.0);
+    // Metallstange oben
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        _r(cx - w * 0.48, cy - h * 0.5, w * 0.12, h),
-        const Radius.circular(2),
-      ),
-      Paint()..color = const Color(0xFF6A1B9A),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        _r(cx + w * 0.36, cy - h * 0.5, w * 0.12, h),
-        const Radius.circular(2),
-      ),
-      Paint()..color = const Color(0xFF6A1B9A),
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        _r(cx - w * 0.5, cy - h * 0.48, w, h * 0.22),
+        _r(cx - w * 0.5, cy - h * 0.45, w, h * 0.14),
         const Radius.circular(3),
       ),
       Paint()
         ..shader = const LinearGradient(
-          colors: [Color(0xFFE1BEE7), Color(0xFF9C27B0), Color(0xFF4A148C)],
-        ).createShader(_r(cx - w * 0.5, cy - h * 0.48, w, h * 0.22)),
+          colors: [Color(0xFFB0BEC5), Color(0xFF546E7A), Color(0xFF263238)],
+        ).createShader(_r(cx - w * 0.5, cy - h * 0.45, w, h * 0.14)),
     );
+    // Seile/Pfosten
+    canvas.drawLine(
+      Offset(cx - w * 0.4, cy - h * 0.4),
+      Offset(cx - w * 0.4, cy + h * 0.35),
+      Paint()
+        ..color = const Color(0xFF37474F)
+        ..strokeWidth = 3,
+    );
+    canvas.drawLine(
+      Offset(cx + w * 0.4, cy - h * 0.4),
+      Offset(cx + w * 0.4, cy + h * 0.35),
+      Paint()
+        ..color = const Color(0xFF37474F)
+        ..strokeWidth = 3,
+    );
+  }
+
+  void _poles(Canvas canvas, double cx, double cy, double w, double h) {
+    w = w.clamp(10.0, 50.0);
+    h = h.clamp(14.0, 40.0);
+    for (int i = 0; i < 3; i++) {
+      final x = cx - w * 0.35 + i * w * 0.35;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _r(x - w * 0.08, cy - h * 0.5, w * 0.16, h),
+          const Radius.circular(2),
+        ),
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFE082), Color(0xFFFFA000), Color(0xFFE65100)],
+          ).createShader(_r(x - w * 0.08, cy - h * 0.5, w * 0.16, h)),
+      );
+    }
   }
 
   void _train(
@@ -1122,10 +1203,10 @@ class _RunPainter extends CustomPainter {
 
     canvas.drawOval(
       _r(cx - w * 0.45, cy + h * 0.42, w * 0.9, 6),
-      Paint()..color = Colors.black.withOpacity(0.3),
+      Paint()..color = Colors.black.withOpacity(0.28),
     );
 
-    final d = 6.5;
+    final d = 6.0;
     final right = Path()
       ..moveTo(cx + w / 2, cy - h / 2)
       ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.2)
@@ -1133,25 +1214,6 @@ class _RunPainter extends CustomPainter {
       ..lineTo(cx + w / 2, cy + h / 2)
       ..close();
     canvas.drawPath(right, Paint()..color = dark);
-
-    final top = Path()
-      ..moveTo(cx - w / 2, cy - h / 2)
-      ..lineTo(cx - w / 2 + d * 0.15, cy - h / 2 - d * 0.25)
-      ..lineTo(cx + w / 2 + d, cy - h / 2 - d * 0.2)
-      ..lineTo(cx + w / 2, cy - h / 2)
-      ..close();
-    canvas.drawPath(top, Paint()..color = light);
-
-    // Dach-Markierung für begehbar
-    if (rideable) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          _r(cx - w * 0.45, cy - h * 0.55, w * 0.9, 5),
-          const Radius.circular(2),
-        ),
-        Paint()..color = const Color(0xFFA5D6A7),
-      );
-    }
 
     final front = RRect.fromRectAndRadius(
       _r(cx - w / 2, cy - h / 2, w, h),
@@ -1167,6 +1229,16 @@ class _RunPainter extends CustomPainter {
         ).createShader(front.outerRect),
     );
 
+    if (rideable) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          _r(cx - w * 0.45, cy - h * 0.55, w * 0.9, 5),
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFFA5D6A7),
+      );
+    }
+
     for (int i = 0; i < 3; i++) {
       final wx = cx - w * 0.32 + i * (w * 0.26);
       canvas.drawRRect(
@@ -1174,19 +1246,9 @@ class _RunPainter extends CustomPainter {
           _r(wx, cy - h * 0.28, w * 0.16, h * 0.28),
           const Radius.circular(2),
         ),
-        Paint()..color = const Color(0xFFB3E5FC).withOpacity(0.92),
+        Paint()..color = const Color(0xFFB3E5FC).withOpacity(0.9),
       );
     }
-    canvas.drawCircle(
-      Offset(cx - w * 0.28, cy + h * 0.32),
-      3.8,
-      Paint()..color = parked ? const Color(0xFFFF5252) : const Color(0xFFFFF59D),
-    );
-    canvas.drawCircle(
-      Offset(cx + w * 0.28, cy + h * 0.32),
-      3.8,
-      Paint()..color = parked ? const Color(0xFFFF5252) : const Color(0xFFFFF59D),
-    );
   }
 
   void _runner(
