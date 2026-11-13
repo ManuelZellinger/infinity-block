@@ -594,13 +594,13 @@ class _Cam {
   static const double laneSpread = 0.26;
 
   _Cam(this.size)
-      : nearY = size.height * 0.78,
-        farY = size.height * 0.30;
+      : nearY = size.height * 0.98, // Schienen bis zum unteren Bildschirmrand
+        farY = size.height * 0.26;  // Horizont oben
 
   Offset project(double lx, double z, [double y = 0]) {
     final t = ((z - 1.0) / 34.0).clamp(0.0, 1.0);
     final sx = size.width * 0.5 + lx * size.width * laneSpread;
-    final sy = nearY + (farY - nearY) * t - y * size.height * 0.09;
+    final sy = nearY + (farY - nearY) * t - y * size.height * 0.10;
     return Offset(sx, sy);
   }
 }
@@ -668,8 +668,9 @@ class _RunPainter extends CustomPainter {
         ).createShader(_r(0, horizonY, size.width, size.height - horizonY)),
     );
 
-    final bedL = cam.project(-1.6, 1.3);
-    final bedR = cam.project(1.6, 1.3);
+    // Schotterbett von unten bis Horizont
+    final bedL = cam.project(-1.6, 0.9);
+    final bedR = cam.project(1.6, 0.9);
     final bedFL = cam.project(-1.6, 32);
     final bedFR = cam.project(1.6, 32);
     final bigBed = Path()
@@ -684,8 +685,9 @@ class _RunPainter extends CustomPainter {
     for (int l = 0; l < 3; l++) {
       final lx = (l - 1).toDouble();
       final on = l == activeLane;
-      final nearL = cam.project(lx - trackHalf, 1.35);
-      final nearR = cam.project(lx + trackHalf, 1.35);
+      // Schienen starten am unteren Bildschirmrand (z=0.9 -> nearY)
+      final nearL = cam.project(lx - trackHalf, 0.9);
+      final nearR = cam.project(lx + trackHalf, 0.9);
       final farL = cam.project(lx - trackHalf, 32);
       final farR = cam.project(lx + trackHalf, 32);
 
@@ -700,7 +702,7 @@ class _RunPainter extends CustomPainter {
         Paint()..color = on ? const Color(0xFF6D4C41).withOpacity(0.7) : const Color(0xFF4E342E).withOpacity(0.42),
       );
 
-      for (double z = 2.0 + tiePhase; z < 30; z += 1.45) {
+      for (double z = 1.0 + tiePhase; z < 30; z += 1.35) {
         final a = cam.project(lx - trackHalf * 0.92, z);
         final b = cam.project(lx + trackHalf * 0.92, z);
         canvas.drawLine(a, b, Paint()..color = const Color(0xFF8D6E63)..strokeWidth = 3.5);
@@ -711,11 +713,10 @@ class _RunPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..strokeWidth = on ? 4.2 : 2.7
         ..color = on ? const Color(0xFFFAFAFA) : const Color(0xFF90A4AE);
-      canvas.drawLine(cam.project(lx - railGap, 1.35), cam.project(lx - railGap, 32), metal);
-      canvas.drawLine(cam.project(lx + railGap, 1.35), cam.project(lx + railGap, 32), metal);
+      canvas.drawLine(cam.project(lx - railGap, 0.9), cam.project(lx - railGap, 32), metal);
+      canvas.drawLine(cam.project(lx + railGap, 0.9), cam.project(lx + railGap, 32), metal);
     }
 
-    // === ECHTE GOLDSTÜCKE mit Prägung + Spiegelung ===
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 40) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.65 : 0.15);
@@ -864,7 +865,6 @@ class _RunPainter extends CustomPainter {
         canvas.drawRect(_r(base.dx - w * 0.5, base.dy - h * 0.84, w * 0.12, h * 0.74), Paint()..color = const Color(0xFF5D4037));
         canvas.drawRect(_r(base.dx + w * 0.38, base.dy - h * 0.84, w * 0.12, h * 0.74), Paint()..color = const Color(0xFF5D4037));
       } else {
-        // Züge längs der Schiene
         final mid = o.kind == 4
             ? const Color(0xFF43A047)
             : o.kind == 5
