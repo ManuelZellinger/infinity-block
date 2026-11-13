@@ -22,7 +22,8 @@ jobs:
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.5'
+          channel: stable
+          # Kein altes 3.10.x – Projekt braucht Dart SDK >= 3.3
 
       - name: Flutter pub get
         run: flutter pub get
