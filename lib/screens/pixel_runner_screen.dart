@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – keine Stapelung, flüssige Figur
+/// Infinity Run – Beine beim Sprung anziehen, keine Zug-Überlappung
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -61,8 +61,9 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   static const int kMaxCoins = 24;
   static const double duckDuration = 1.8;
   static const double kCoinMinGap = 2.8;
-  /// Mindestabstand Hindernisse (World-Z) – verhindert Stapel
-  static const double kObsMinGap = 8.5;
+  static const double kObsMinGap = 9.0;
+  /// Züge brauchen mehr Abstand (auch spurübergreifend)
+  static const double kTrainMinGap = 14.0;
 
   @override
   void initState() {
@@ -94,7 +95,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     sparks.add(s);
   }
 
-  /// Hindernis belegt [z, z+length] – Abstand zu anderen auf derselben Spur
+  bool _isTrainKind(int kind) => kind == 2 || kind == 4 || kind == 5;
+
   bool _laneBusy(int l, double z, double length, double minGap) {
     for (final o in obs) {
       if (o.lane != l) continue;
@@ -102,8 +104,21 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       final a1 = o.z + o.length;
       final b0 = z;
       final b1 = z + length;
-      // Überlappung oder zu nah
       if (b0 < a1 + minGap && b1 + minGap > a0) return true;
+    }
+    return false;
+  }
+
+  /// Züge: Abstand auf allen Spuren (kein Stapel von 3 Zügen nebeneinander)
+  bool _trainZoneBusy(double z, double length) {
+    final gap = kTrainMinGap;
+    for (final o in obs) {
+      if (!_isTrainKind(o.kind)) continue;
+      final a0 = o.z;
+      final a1 = o.z + o.length;
+      final b0 = z;
+      final b1 = z + length;
+      if (b0 < a1 + gap && b1 + gap > a0) return true;
     }
     return false;
   }
@@ -152,9 +167,8 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     score = dist.toInt() + coins * 5;
     speed = min(12.8, 6.5 + dist * 0.00105);
 
-    // Flüssiger Laufzyklus
     final cadence =
-        ducking ? 2.2 : (jumpY > 0.2 || onTrain ? 1.8 : 13.5 + speed * 0.5);
+        ducking ? 2.2 : (jumpY > 0.2 || onTrain ? 1.5 : 13.5 + speed * 0.5);
     runPhase += dt * cadence;
 
     if (jumpY > 0 || jumpV > 0) {
@@ -215,7 +229,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     sparks.removeWhere((s) => s.life <= 0);
 
     spawnAcc += dt;
-    // seltener spawnen → weniger Stapel-Druck
     if (spawnAcc > max(1.9, 2.8 - dist / 10000) && obs.length < kMaxObs) {
       spawnAcc = 0;
       _spawnObstacle();
@@ -299,7 +312,6 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   }
 
   void _spawnObstacle() {
-    // Länge zuerst wählen, dann freie Spur + freie Z-Stelle suchen
     final r = _rng.nextDouble();
     final kind = r < 0.18
         ? 0
@@ -324,19 +336,21 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     if (kind == 4 || kind == 5 || kind == 2) length = 2.2 + _rng.nextDouble() * 1.0;
     if (kind == 6) length = 2.5;
 
-    // Start-Z weit hinten, ggf. weiter schieben wenn belegt
+    final isTrain = _isTrainKind(kind);
+    final gap = isTrain ? kTrainMinGap : kObsMinGap;
+
     double z = 42.0;
     var l = _rng.nextInt(3);
     var placed = false;
-    for (int attempt = 0; attempt < 9; attempt++) {
+    for (int attempt = 0; attempt < 12; attempt++) {
       l = (l + attempt) % 3;
-      z = 42.0 + (attempt % 3) * 2.5;
-      if (!_laneBusy(l, z, length, kObsMinGap)) {
-        placed = true;
-        break;
-      }
+      z = 42.0 + (attempt % 4) * 3.5;
+      if (_laneBusy(l, z, length, gap)) continue;
+      if (isTrain && _trainZoneBusy(z, length)) continue;
+      placed = true;
+      break;
     }
-    if (!placed) return; // lieber nichts spawnen als stapeln
+    if (!placed) return;
 
     obs.add(_Obs(
       lane: l,
@@ -347,13 +361,13 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
       stationary: kind == 5,
     ));
 
-    // Zweites Hindernis nur auf anderer Spur und mit Abstand
-    if (_rng.nextDouble() < 0.18 && kind != 4 && obs.length < kMaxObs) {
+    // Zweites Hindernis: nie Zug, nie gleiche Z-Zone wie Züge
+    if (_rng.nextDouble() < 0.15 && !isTrain && obs.length < kMaxObs) {
       final l2 = (l + 1 + _rng.nextInt(2)) % 3;
-      final z2 = z + kObsMinGap + 1.0;
+      final z2 = z + kObsMinGap + 1.5;
       final len2 = kind == 3 ? 2.0 : 1.0;
-      final k2 = kind == 2 ? 0 : kind;
-      if (!_laneBusy(l2, z2, len2, kObsMinGap)) {
+      final k2 = (kind == 2 || kind == 4 || kind == 5) ? 0 : kind;
+      if (!_laneBusy(l2, z2, len2, kObsMinGap) && !_trainZoneBusy(z2, len2)) {
         obs.add(_Obs(
           lane: l2,
           z: z2,
@@ -636,7 +650,6 @@ class _Spark {
   _Spark({required this.x, required this.z, this.y = 0, required this.vy, required this.life, required this.color});
 }
 
-/// Lineare Projektion – Abstände bleiben konstant
 class _Cam {
   final Size size;
   final double nearY;
@@ -954,25 +967,28 @@ class _RunPainter extends CustomPainter {
     }
   }
 
-  /// Flüssiger Laufzyklus: smoothstep-ähnliche Bewegung, Knie, Arme, Bob
+  /// Sprung: Beine anziehen (nicht länger werden), Landen: wieder strecken
   void _runner(Canvas c, Offset pos, double groundY, double scale, double phase, bool duck, bool air, bool ghost, bool jet) {
     final s = 34.0 * scale;
     final skin = ghost ? Colors.purpleAccent.withOpacity(0.9) : const Color(0xFFFFCC80);
     final shirt = ghost ? Colors.deepPurple : const Color(0xFF1E88E5);
     final pants = ghost ? Colors.deepPurple.shade800 : const Color(0xFF1565C0);
 
-    // weichere Sinus-Kurve für flüssige Beine
     final legPhase = sin(phase);
     final legPhase2 = sin(phase + pi);
     final armPhase = sin(phase + pi);
 
-    final legAmp = duck ? 0.06 : (air ? 0.2 : 1.2);
-    final armAmp = duck ? 0.05 : (air ? 0.22 : 1.1);
-    // Bob: doppelte Frequenz, weich
+    final legAmp = duck ? 0.06 : (air ? 0.0 : 1.2);
+    final armAmp = duck ? 0.05 : (air ? 0.15 : 1.1);
     final bob = duck || air ? 0.0 : ((1 - cos(phase * 2)) * 0.5) * s * 0.22;
-    final lean = air ? -0.05 : (duck ? 0.1 : 0.05);
+    final lean = air ? -0.04 : (duck ? 0.1 : 0.05);
 
-    c.drawOval(_r(pos.dx - s * 0.42, groundY + s * 0.04, s * 0.84, 8), Paint()..color = Colors.black.withOpacity(0.32));
+    // Schatten nur am Boden wenn nicht in der Luft
+    if (!air) {
+      c.drawOval(_r(pos.dx - s * 0.42, groundY + s * 0.04, s * 0.84, 8), Paint()..color = Colors.black.withOpacity(0.32));
+    } else {
+      c.drawOval(_r(pos.dx - s * 0.28, groundY + s * 0.04, s * 0.56, 6), Paint()..color = Colors.black.withOpacity(0.18));
+    }
 
     final bodyTop = (duck ? pos.dy + s * 0.14 : pos.dy - s * 0.28) + bob;
     final bodyH = duck ? s * 0.4 : s * 1.12;
@@ -980,21 +996,32 @@ class _RunPainter extends CustomPainter {
 
     final lp = Paint()..color = pants..strokeWidth = s * 0.33..strokeCap = StrokeCap.round;
 
-    // Fußhöhe: beim Vorwärtsschwung leicht anheben
-    final leftLift = (!air && !duck && legPhase > 0) ? legPhase * s * 0.1 : 0.0;
-    final rightLift = (!air && !duck && legPhase2 > 0) ? legPhase2 * s * 0.1 : 0.0;
+    late Offset leftFoot;
+    late Offset rightFoot;
+    late Offset leftKnee;
+    late Offset rightKnee;
 
-    final leftFoot = Offset(pos.dx - s * 0.28 - legPhase * s * 0.6 * legAmp, groundY - leftLift);
-    final rightFoot = Offset(pos.dx + s * 0.28 - legPhase2 * s * 0.6 * legAmp, groundY - rightLift);
-
-    final leftKnee = Offset(
-      (hip.dx + leftFoot.dx) * 0.5 - s * 0.06,
-      (hip.dy + leftFoot.dy) * 0.48 - (air || duck ? 0 : s * 0.1 * (1 - legPhase.abs().clamp(0.0, 1.0))),
-    );
-    final rightKnee = Offset(
-      (hip.dx + rightFoot.dx) * 0.5 + s * 0.06,
-      (hip.dy + rightFoot.dy) * 0.48 - (air || duck ? 0 : s * 0.1 * (1 - legPhase2.abs().clamp(0.0, 1.0))),
-    );
+    if (air) {
+      // Beine angezogen unter dem Körper – feste Länge, kein Stretch zum Boden
+      final tuck = s * 0.42;
+      leftKnee = Offset(hip.dx - s * 0.18, hip.dy + s * 0.22);
+      rightKnee = Offset(hip.dx + s * 0.18, hip.dy + s * 0.22);
+      leftFoot = Offset(leftKnee.dx - s * 0.08, leftKnee.dy + tuck);
+      rightFoot = Offset(rightKnee.dx + s * 0.08, rightKnee.dy + tuck);
+    } else {
+      final leftLift = (!duck && legPhase > 0) ? legPhase * s * 0.1 : 0.0;
+      final rightLift = (!duck && legPhase2 > 0) ? legPhase2 * s * 0.1 : 0.0;
+      leftFoot = Offset(pos.dx - s * 0.28 - legPhase * s * 0.6 * legAmp, groundY - leftLift);
+      rightFoot = Offset(pos.dx + s * 0.28 - legPhase2 * s * 0.6 * legAmp, groundY - rightLift);
+      leftKnee = Offset(
+        (hip.dx + leftFoot.dx) * 0.5 - s * 0.06,
+        (hip.dy + leftFoot.dy) * 0.48 - (duck ? 0 : s * 0.1 * (1 - legPhase.abs().clamp(0.0, 1.0))),
+      );
+      rightKnee = Offset(
+        (hip.dx + rightFoot.dx) * 0.5 + s * 0.06,
+        (hip.dy + rightFoot.dy) * 0.48 - (duck ? 0 : s * 0.1 * (1 - legPhase2.abs().clamp(0.0, 1.0))),
+      );
+    }
 
     c.drawLine(hip, leftKnee, lp);
     c.drawLine(leftKnee, leftFoot, lp);
