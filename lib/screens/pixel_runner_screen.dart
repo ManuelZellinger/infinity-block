@@ -45,6 +45,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   double spawnAcc = 0;
   double coinAcc = 0;
   double worldPhase = 0;
+  int _paintTick = 0;
 
   static const double jumpPower = 16.8;
   static const double gravity = 20.5;
@@ -262,7 +263,10 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
         }
       }
     }
-    if (mounted) setState(() {});
+    // setState nur für CustomPaint; Accessibility-Baum ausnehmen (ExcludeSemantics)
+    if (!mounted) return;
+    _paintTick = (_paintTick + 1) & 0xffff;
+    setState(() {});
   }
 
   void _spawnObstacle() {
@@ -365,6 +369,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
               ]),
             ),
             Expanded(
+              child: ExcludeSemantics(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onPanStart: (_) { _panX = 0; _panY = 0; _panUsed = false; },
@@ -395,6 +400,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
                   child: const SizedBox.expand(),
                 ),
               ),
+              ), // ExcludeSemantics
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
