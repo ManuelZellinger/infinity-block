@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Infinity Run – stabiler Abstand Münzen/Hindernisse (keine Abstands-Verzerrung)
+/// Infinity Run – linearer Abstand + bessere Lauf-Animation
 class PixelRunnerScreen extends StatefulWidget {
   const PixelRunnerScreen({super.key});
   @override
@@ -60,7 +60,7 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
   static const int kMaxObs = 24;
   static const int kMaxCoins = 28;
   static const double duckDuration = 1.8;
-  static const double kCoinMinGap = 2.6;
+  static const double kCoinMinGap = 2.8;
 
   @override
   void initState() {
@@ -144,8 +144,9 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     score = dist.toInt() + coins * 5;
     speed = min(13.2, 6.6 + dist * 0.0011);
 
+    // Laufzyklus ~ wie im Video: schneller bei höherer Speed
     final cadence =
-        ducking ? 2.1 : (jumpY > 0.2 || onTrain ? 1.7 : 12.8 + speed * 0.45);
+        ducking ? 2.0 : (jumpY > 0.2 || onTrain ? 1.6 : 14.0 + speed * 0.55);
     runPhase += dt * cadence;
 
     if (jumpY > 0 || jumpV > 0) {
@@ -186,14 +187,14 @@ class _PixelRunnerScreenState extends State<PixelRunnerScreen>
     }
 
     dustAcc += dt;
-    if (dustAcc > 0.06 && jumpY < 0.05 && !ducking) {
+    if (dustAcc > 0.05 && jumpY < 0.05 && !ducking) {
       dustAcc = 0;
       _addSpark(_Spark(
-        x: laneX + (_rng.nextDouble() - 0.5) * 0.14,
+        x: laneX + (_rng.nextDouble() - 0.5) * 0.16,
         z: kPlayerZ + 0.25,
         y: 0.02,
         vy: 0.08 + _rng.nextDouble() * 0.14,
-        life: 0.15 + _rng.nextDouble() * 0.12,
+        life: 0.14 + _rng.nextDouble() * 0.1,
         color: const Color(0xFFBCAAA4),
       ));
     }
@@ -614,34 +615,27 @@ class _Spark {
   _Spark({required this.x, required this.z, this.y = 0, required this.vy, required this.life, required this.color});
 }
 
-/// Fast lineare Tiefen-Projektion: gleicher World-Abstand ≈ gleicher Bildschirm-Abstand
+/// 100 % lineare Projektion: Δz auf dem Bildschirm immer gleich (keine Abstands-Verzerrung)
 class _Cam {
   final Size size;
-  final double horizonY;
-  final double groundY;
-  /// Spur-Breite bleibt über die Tiefe fast konstant (kaum Fächer)
-  static const double laneSpread = 0.255;
+  final double nearY;
+  final double farY;
+  static const double laneSpread = 0.26;
 
   _Cam(this.size)
-      : horizonY = size.height * 0.32,
-        groundY = size.height * 0.76;
+      : nearY = size.height * 0.78,
+        farY = size.height * 0.30;
 
-  /// t linear in z → sy linear → Abstand zwischen z und z+gap bleibt konstant
   Offset project(double lx, double z, [double y = 0]) {
+    // rein linear in z – kein 1/z, kein Fächern der Abstände
     final t = ((z - 1.0) / 34.0).clamp(0.0, 1.0);
-    // nur sehr schwache Spur-Verengung (kein starkes Fächern)
-    final spread = laneSpread * (1.0 - t * 0.08);
-    final sx = size.width * 0.5 + lx * size.width * spread;
-    // linear entlang der Bahn
-    final sy = groundY + (horizonY - groundY) * t - y * size.height * 0.085;
+    final sx = size.width * 0.5 + lx * size.width * laneSpread;
+    final sy = nearY + (farY - nearY) * t - y * size.height * 0.09;
     return Offset(sx, sy);
   }
 
-  /// Größe ändert sich nur minimal mit der Tiefe → kein „Aufblasen“ naher Objekte
-  double objectSize(double z, double base) {
-    final t = ((z - 1.0) / 34.0).clamp(0.0, 1.0);
-    return base * (1.0 - t * 0.06);
-  }
+  /// feste Größe – keine Skalierung mit z
+  double objectSize(double z, double base) => base;
 }
 
 class _RunPainter extends CustomPainter {
@@ -715,25 +709,26 @@ class _RunPainter extends CustomPainter {
       canvas.drawCircle(Offset(cx + 16, cy + 2), 12, p);
     }
 
+    final horizonY = cam.farY;
     final skyShift = (worldPhase * 2.9) % (size.width * 0.035);
     for (int i = -1; i < 16; i++) {
       final x = size.width * (0.012 * i) - skyShift;
       final h = size.height * (0.03 + ((i + 7) * 11 % 5) * 0.016);
       final bw = size.width * (0.024 + (i % 3) * 0.008);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(x, cam.horizonY - h, bw, h), const Radius.circular(2)),
+        RRect.fromRectAndRadius(Rect.fromLTWH(x, horizonY - h, bw, h), const Radius.circular(2)),
         Paint()..color = Color.lerp(const Color(0xFF2C4A5C), const Color(0xFF5A7A8C), ((i + 3) % 4) / 4)!.withOpacity(0.7),
       );
     }
 
     canvas.drawRect(
-      _r(0, cam.horizonY, size.width, size.height - cam.horizonY),
+      _r(0, horizonY, size.width, size.height - horizonY),
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: const [Color(0xFFC5E06A), Color(0xFF8BC34A), Color(0xFF689F38), Color(0xFF558B2F)],
-        ).createShader(_r(0, cam.horizonY, size.width, size.height - cam.horizonY)),
+        ).createShader(_r(0, horizonY, size.width, size.height - horizonY)),
     );
 
     final sidePhase = worldPhase * 1.45;
@@ -741,7 +736,7 @@ class _RunPainter extends CustomPainter {
       final z = 6.0 + ((i * 4.5 + sidePhase) % 26);
       final left = i.isEven;
       final p = cam.project(left ? -2.2 : 2.2, z);
-      final s = cam.objectSize(z, 26).clamp(11.0, 32.0);
+      final s = 24.0;
       final bh = s * (1.2 + (i % 3) * 0.4);
       canvas.drawRRect(
         RRect.fromRectAndRadius(_r(p.dx - s * 0.32, p.dy - bh, s * 0.64, bh), const Radius.circular(2)),
@@ -753,7 +748,7 @@ class _RunPainter extends CustomPainter {
       final z = 4.0 + ((i * 3.6 + treePhase) % 28);
       final left = (i % 3) != 1;
       final p = cam.project(left ? -1.85 : 1.85, z);
-      final s = cam.objectSize(z, 18).clamp(8.0, 24.0);
+      final s = 16.0;
       canvas.drawRect(_r(p.dx - s * 0.1, p.dy - s * 0.8, s * 0.2, s * 0.8), Paint()..color = const Color(0xFF5D4037));
       canvas.drawCircle(Offset(p.dx, p.dy - s * 0.95), s * 0.48, Paint()..color = Color.lerp(const Color(0xFF2E7D32), const Color(0xFF81C784), (i % 5) / 5)!);
     }
@@ -835,12 +830,12 @@ class _RunPainter extends CustomPainter {
       canvas.drawLine(pR0, pR1, metal);
     }
 
+    // Münzen: feste Pixelgröße → Abstand bleibt optisch konstant
     for (final c in coins) {
       if (c.z < 1.8 || c.z > 40) continue;
       final p = cam.project((c.lane - 1).toDouble(), c.z, c.high ? 0.65 : 0.15);
-      // feste Basisgröße – kaum Größenänderung → Abstand wirkt stabil
-      final r = cam.objectSize(c.z, 11.5).clamp(9.0, 12.5);
-      canvas.drawCircle(p.translate(1.3, 1.6), r, Paint()..color = Colors.black.withOpacity(0.18));
+      const r = 11.0;
+      canvas.drawCircle(p.translate(1.2, 1.5), r, Paint()..color = Colors.black.withOpacity(0.18));
       canvas.drawCircle(
         p,
         r,
@@ -858,7 +853,7 @@ class _RunPainter extends CustomPainter {
       if (o.z > 40) continue;
       final lx = (o.lane - 1).toDouble();
       final base = cam.project(lx, o.z);
-      final w = cam.objectSize(o.z, size.width * 0.12).clamp(30.0, 52.0);
+      final w = size.width * 0.11;
 
       if (o.kind == 0 || o.kind == 3 || o.kind == 6 || o.kind == 8) {
         final steps = o.kind == 3 ? max(2, (o.length / 0.85).round()) : (o.kind == 6 ? 2 : 1);
@@ -866,8 +861,8 @@ class _RunPainter extends CustomPainter {
           final zz = o.z + i * (o.length / max(1, steps));
           if (zz < 1.8 || zz > 40) continue;
           final b = cam.project(lx, zz);
-          final ww = cam.objectSize(zz, size.width * 0.11).clamp(28.0, 50.0);
-          final hh = cam.objectSize(zz, o.kind == 8 ? 30.0 : 18.0).clamp(15.0, 34.0);
+          final ww = size.width * 0.10;
+          final hh = o.kind == 8 ? 28.0 : 18.0;
           final body = RRect.fromRectAndRadius(_r(b.dx - ww / 2, b.dy - hh * 0.74, ww, hh), const Radius.circular(3));
           canvas.drawRRect(
             body,
@@ -880,7 +875,7 @@ class _RunPainter extends CustomPainter {
           );
         }
       } else if (o.kind == 1 || o.kind == 7) {
-        final h = cam.objectSize(o.z, 52.0).clamp(40.0, 56.0);
+        const h = 48.0;
         canvas.drawRRect(
           RRect.fromRectAndRadius(_r(base.dx - w * 0.54, base.dy - h * 0.97, w, h * 0.22), const Radius.circular(3)),
           Paint()..color = const Color(0xFFFF9800),
@@ -893,8 +888,8 @@ class _RunPainter extends CustomPainter {
           final zz = o.z + i * (o.length / max(1, steps));
           if (zz < 1.8 || zz > 40) continue;
           final b = cam.project(lx, zz);
-          final ww = cam.objectSize(zz, size.width * 0.13).clamp(32.0, 54.0);
-          final hh = cam.objectSize(zz, 48.0).clamp(40.0, 54.0);
+          final ww = size.width * 0.12;
+          const hh = 46.0;
           final mid = o.kind == 4
               ? const Color(0xFF66BB6A)
               : o.kind == 5
@@ -934,59 +929,109 @@ class _RunPainter extends CustomPainter {
 
     final feet = cam.project(laneX, 3.0, 0);
     final body = cam.project(laneX, 3.0, jumpY + (jetpack ? 1.1 : 0));
-    _runner(canvas, Offset(body.dx, body.dy), feet.dy, 1.5, runPhase, ducking, jumpY > 0.12 || onTrain, ghost, jetpack);
+    _runner(canvas, Offset(body.dx, body.dy), feet.dy, 1.55, runPhase, ducking, jumpY > 0.12 || onTrain, ghost, jetpack);
 
     if (dead) {
       canvas.drawRect(Offset.zero & size, Paint()..color = Colors.black.withOpacity(0.42));
     }
   }
 
+  /// Lauf-Animation näher am Video: klarer Bein-/Arm-Zyklus, Körperneigung, Bob
   void _runner(Canvas c, Offset pos, double groundY, double scale, double phase, bool duck, bool air, bool ghost, bool jet) {
-    final s = 33.0 * scale;
+    final s = 34.0 * scale;
     final skin = ghost ? Colors.purpleAccent.withOpacity(0.9) : const Color(0xFFFFCC80);
     final shirt = ghost ? Colors.deepPurple : const Color(0xFF1E88E5);
     final pants = ghost ? Colors.deepPurple.shade800 : const Color(0xFF1565C0);
 
-    final legSwing = sin(phase);
-    final leg = legSwing * (duck ? 0.04 : (air ? 0.14 : 1.15));
-    final arm = -legSwing * (duck ? 0.03 : (air ? 0.14 : 1.05));
-    final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.18);
+    // zwei Phasen: Beine / Arme gegenläufig
+    final legPhase = sin(phase);
+    final legPhase2 = sin(phase + pi);
+    final armPhase = sin(phase + pi); // Arme gegen Beine
 
-    c.drawOval(_r(pos.dx - s * 0.4, groundY + s * 0.05, s * 0.8, 7), Paint()..color = Colors.black.withOpacity(0.35));
+    final legAmp = duck ? 0.05 : (air ? 0.18 : 1.25);
+    final armAmp = duck ? 0.04 : (air ? 0.2 : 1.15);
+    final bob = duck || air ? 0.0 : (sin(phase * 2).abs() * s * 0.2);
+    // leichte Vorwärtsneigung wie im Video
+    final lean = air ? -0.04 : (duck ? 0.12 : 0.06);
 
-    final bodyTop = (duck ? pos.dy + s * 0.12 : pos.dy - s * 0.26) + bob;
-    final bodyH = duck ? s * 0.42 : s * 1.1;
-    final hip = Offset(pos.dx, bodyTop + bodyH * 0.58);
+    c.drawOval(_r(pos.dx - s * 0.42, groundY + s * 0.04, s * 0.84, 8), Paint()..color = Colors.black.withOpacity(0.35));
 
-    final lp = Paint()..color = pants..strokeWidth = s * 0.32..strokeCap = StrokeCap.round;
-    final leftFoot = Offset(pos.dx - s * 0.28 - leg * s * 0.58, groundY);
-    final rightFoot = Offset(pos.dx + s * 0.28 + leg * s * 0.58, groundY);
-    c.drawLine(hip, leftFoot, lp);
-    c.drawLine(hip, rightFoot, lp);
-    c.drawRRect(RRect.fromRectAndRadius(_r(leftFoot.dx - s * 0.16, leftFoot.dy - s * 0.06, s * 0.32, s * 0.14), Radius.circular(s * 0.04)), Paint()..color = const Color(0xFF212121));
-    c.drawRRect(RRect.fromRectAndRadius(_r(rightFoot.dx - s * 0.16, rightFoot.dy - s * 0.06, s * 0.32, s * 0.14), Radius.circular(s * 0.04)), Paint()..color = const Color(0xFF212121));
+    final bodyTop = (duck ? pos.dy + s * 0.14 : pos.dy - s * 0.28) + bob;
+    final bodyH = duck ? s * 0.4 : s * 1.12;
+    final hip = Offset(pos.dx + lean * s * 0.3, bodyTop + bodyH * 0.6);
 
-    final body = RRect.fromRectAndRadius(_r(pos.dx - s * 0.32, bodyTop, s * 0.64, bodyH), Radius.circular(s * 0.15));
-    c.drawRRect(body, Paint()..shader = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [shirt.withOpacity(0.95), shirt, pants]).createShader(body.outerRect));
+    // Beine: Knie-ähnliche Knickung durch Zwischenpunkt
+    final lp = Paint()..color = pants..strokeWidth = s * 0.34..strokeCap = StrokeCap.round;
+    final leftFoot = Offset(pos.dx - s * 0.3 - legPhase * s * 0.62 * legAmp, groundY + (legPhase > 0 && !air && !duck ? -s * 0.06 * legPhase : 0));
+    final rightFoot = Offset(pos.dx + s * 0.3 - legPhase2 * s * 0.62 * legAmp, groundY + (legPhase2 > 0 && !air && !duck ? -s * 0.06 * legPhase2 : 0));
+    final leftKnee = Offset(
+      (hip.dx + leftFoot.dx) * 0.5 - s * 0.08,
+      (hip.dy + leftFoot.dy) * 0.5 - (air || duck ? 0 : s * 0.08 * (1 - legPhase.abs())),
+    );
+    final rightKnee = Offset(
+      (hip.dx + rightFoot.dx) * 0.5 + s * 0.08,
+      (hip.dy + rightFoot.dy) * 0.5 - (air || duck ? 0 : s * 0.08 * (1 - legPhase2.abs())),
+    );
+    c.drawLine(hip, leftKnee, lp);
+    c.drawLine(leftKnee, leftFoot, lp);
+    c.drawLine(hip, rightKnee, lp);
+    c.drawLine(rightKnee, rightFoot, lp);
 
-    final sh = Offset(pos.dx, bodyTop + bodyH * 0.12);
-    final ap = Paint()..color = shirt..strokeWidth = s * 0.23..strokeCap = StrokeCap.round;
-    c.drawLine(sh, Offset(pos.dx - s * 0.55, sh.dy + s * 0.42 + arm * s * 0.52), ap);
-    c.drawLine(sh, Offset(pos.dx + s * 0.55, sh.dy + s * 0.42 - arm * s * 0.52), ap);
+    // Schuhe
+    c.drawRRect(RRect.fromRectAndRadius(_r(leftFoot.dx - s * 0.18, leftFoot.dy - s * 0.07, s * 0.36, s * 0.15), Radius.circular(s * 0.05)), Paint()..color = const Color(0xFF212121));
+    c.drawRRect(RRect.fromRectAndRadius(_r(rightFoot.dx - s * 0.18, rightFoot.dy - s * 0.07, s * 0.36, s * 0.15), Radius.circular(s * 0.05)), Paint()..color = const Color(0xFF212121));
 
-    final headY = bodyTop - s * 0.35;
-    final hr = s * 0.37;
+    // Rumpf mit leichter Neigung
+    final bodyRect = RRect.fromRectAndRadius(
+      _r(pos.dx - s * 0.33 + lean * s * 0.2, bodyTop, s * 0.66, bodyH),
+      Radius.circular(s * 0.16),
+    );
+    c.drawRRect(
+      bodyRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [shirt.withOpacity(0.95), shirt, pants],
+        ).createShader(bodyRect.outerRect),
+    );
+
+    // Arme gegenläufig, nach vorn/hinten
+    final sh = Offset(pos.dx + lean * s * 0.15, bodyTop + bodyH * 0.12);
+    final ap = Paint()..color = shirt..strokeWidth = s * 0.24..strokeCap = StrokeCap.round;
+    final leftHand = Offset(pos.dx - s * 0.58, sh.dy + s * 0.48 + armPhase * s * 0.55 * armAmp);
+    final rightHand = Offset(pos.dx + s * 0.58, sh.dy + s * 0.48 - armPhase * s * 0.55 * armAmp);
+    c.drawLine(sh, leftHand, ap);
+    c.drawLine(sh, rightHand, ap);
+
+    // Kopf
+    final headY = bodyTop - s * 0.36;
+    final hr = s * 0.38;
     c.drawCircle(
-      Offset(pos.dx, headY),
+      Offset(pos.dx + lean * s * 0.1, headY),
       hr,
       Paint()
-        ..shader = RadialGradient(center: const Alignment(-0.25, -0.3), colors: [Colors.white.withOpacity(0.9), skin, const Color(0xFFE0A060)])
-            .createShader(_r(pos.dx - hr, headY - hr, hr * 2, hr * 2)),
+        ..shader = RadialGradient(
+          center: const Alignment(-0.25, -0.3),
+          colors: [Colors.white.withOpacity(0.9), skin, const Color(0xFFE0A060)],
+        ).createShader(_r(pos.dx - hr, headY - hr, hr * 2, hr * 2)),
     );
-    c.drawCircle(Offset(pos.dx - hr * 0.32, headY - hr * 0.05), hr * 0.14, Paint()..color = Colors.white);
-    c.drawCircle(Offset(pos.dx + hr * 0.32, headY - hr * 0.05), hr * 0.14, Paint()..color = Colors.white);
-    c.drawCircle(Offset(pos.dx - hr * 0.32, headY - hr * 0.05), hr * 0.07, Paint()..color = const Color(0xFF1A237E));
-    c.drawCircle(Offset(pos.dx + hr * 0.32, headY - hr * 0.05), hr * 0.07, Paint()..color = const Color(0xFF1A237E));
+    c.drawCircle(Offset(pos.dx - hr * 0.3 + lean * s * 0.1, headY - hr * 0.05), hr * 0.14, Paint()..color = Colors.white);
+    c.drawCircle(Offset(pos.dx + hr * 0.3 + lean * s * 0.1, headY - hr * 0.05), hr * 0.14, Paint()..color = Colors.white);
+    c.drawCircle(Offset(pos.dx - hr * 0.3 + lean * s * 0.1, headY - hr * 0.05), hr * 0.07, Paint()..color = const Color(0xFF1A237E));
+    c.drawCircle(Offset(pos.dx + hr * 0.3 + lean * s * 0.1, headY - hr * 0.05), hr * 0.07, Paint()..color = const Color(0xFF1A237E));
+    // Haare
+    c.drawArc(
+      _r(pos.dx - hr + lean * s * 0.1, headY - hr * 1.05, hr * 2, hr * 1.15),
+      3.4,
+      2.5,
+      false,
+      Paint()
+        ..color = const Color(0xFF3E2723)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = hr * 0.38
+        ..strokeCap = StrokeCap.round,
+    );
 
     if (jet) {
       final jr = 13.0;
