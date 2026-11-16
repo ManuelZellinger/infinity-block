@@ -5,23 +5,20 @@ class SupabaseService {
   SupabaseService._();
   static final SupabaseService instance = SupabaseService._();
 
-  static const String supabaseUrl = 'https://hsksksqgehtxrgumkbxv.supabase.co';
-  static const String supabasePublishableKey =
+  static const String _url = 'https://hsksksqgehtxrgumkbxv.supabase.co';
+  static const String _key =
       'sb_publishable_STyYekqJ-vuaH8kIHChU4A_hmK5f2-h';
 
   SupabaseClient get _client => Supabase.instance.client;
 
-  /// Initialize once in main()
   static Future<void> initialize() async {
     await Supabase.initialize(
-      url: supabaseUrl,
-      anonKey: supabasePublishableKey,
+      url: _url,
+      anonKey: _key,
     );
   }
 
-  // ─────────────────────────────────────────────
-  // Scores / Leaderboard
-  // ─────────────────────────────────────────────
+  // ─── Scores ───────────────────────────────────────────────
 
   Future<void> submitScore({
     required String playerId,
@@ -37,7 +34,7 @@ class SupabaseService {
         'game': game,
       });
     } catch (e) {
-      debugPrint('submitScore error: $e');
+      debugPrint('submitScore: $e');
     }
   }
 
@@ -54,16 +51,13 @@ class SupabaseService {
           .limit(limit);
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      debugPrint('getTopScores error: $e');
+      debugPrint('getTopScores: $e');
       return [];
     }
   }
 
-  // ─────────────────────────────────────────────
-  // Friends
-  // ─────────────────────────────────────────────
+  // ─── Friends ──────────────────────────────────────────────
 
-  /// Send friend request
   Future<bool> sendFriendRequest({
     required String fromPlayerId,
     required String toPlayerId,
@@ -76,12 +70,11 @@ class SupabaseService {
       });
       return true;
     } catch (e) {
-      debugPrint('sendFriendRequest error: $e');
+      debugPrint('sendFriendRequest: $e');
       return false;
     }
   }
 
-  /// Accept friend request
   Future<bool> acceptFriendRequest({
     required String fromPlayerId,
     required String toPlayerId,
@@ -95,12 +88,12 @@ class SupabaseService {
           .eq('status', 'pending');
       return true;
     } catch (e) {
-      debugPrint('acceptFriendRequest error: $e');
+      debugPrint('acceptFriendRequest: $e');
       return false;
     }
   }
 
-  /// Remove friend (both directions)
+  /// Freund entfernen (Mistkübel)
   Future<bool> removeFriend({
     required String myPlayerId,
     required String friendPlayerId,
@@ -118,12 +111,11 @@ class SupabaseService {
           );
       return true;
     } catch (e) {
-      debugPrint('removeFriend error: $e');
+      debugPrint('removeFriend: $e');
       return false;
     }
   }
 
-  /// Get accepted friends for a player
   Future<List<Map<String, dynamic>>> getFriends(String playerId) async {
     try {
       final res = await _client
@@ -133,14 +125,12 @@ class SupabaseService {
           .or('from_player_id.eq.$playerId,to_player_id.eq.$playerId');
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
-      debugPrint('getFriends error: $e');
+      debugPrint('getFriends: $e');
       return [];
     }
   }
 
-  // ─────────────────────────────────────────────
-  // Usage events (Creator stats)
-  // ─────────────────────────────────────────────
+  // ─── Usage ────────────────────────────────────────────────
 
   Future<void> logUsageEvent({
     required String eventType,
@@ -154,7 +144,7 @@ class SupabaseService {
         'player_id': playerId,
       });
     } catch (e) {
-      debugPrint('logUsageEvent error: $e');
+      debugPrint('logUsageEvent: $e');
     }
   }
 }

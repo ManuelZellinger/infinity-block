@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
 import 'screens/pixel_runner_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Supabase initialisieren
-  await SupabaseService.initialize();
+  // Silent backend init
+  try {
+    await SupabaseService.initialize();
+  } catch (_) {}
 
   runApp(const InfinityBlockApp());
 }
@@ -53,11 +54,6 @@ class HomeScreen extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Supabase connected',
-                  style: TextStyle(color: Colors.white.withOpacity(0.55)),
                 ),
                 const SizedBox(height: 40),
                 FilledButton.icon(
