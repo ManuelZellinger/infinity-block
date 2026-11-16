@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'services/supabase_service.dart';
 import 'screens/pixel_runner_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Supabase initialisieren
+  await SupabaseService.initialize();
+
   runApp(const InfinityBlockApp());
 }
 
@@ -50,7 +56,7 @@ class HomeScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'GitHub-Stand – lokal erst nach git pull',
+                  'Supabase connected',
                   style: TextStyle(color: Colors.white.withOpacity(0.55)),
                 ),
                 const SizedBox(height: 40),
