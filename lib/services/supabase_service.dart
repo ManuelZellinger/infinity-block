@@ -130,6 +130,20 @@ class SupabaseService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getPendingRequests(String myPlayerId) async {
+    try {
+      final res = await _client
+          .from('friend_requests')
+          .select()
+          .eq('to_player_id', myPlayerId)
+          .eq('status', 'pending');
+      return List<Map<String, dynamic>>.from(res);
+    } catch (e) {
+      debugPrint('getPendingRequests: $e');
+      return [];
+    }
+  }
+
   // ─── Usage ────────────────────────────────────────────────
 
   Future<void> logUsageEvent({
